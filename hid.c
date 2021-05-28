@@ -3,6 +3,11 @@
 #include "bsp/board.h"
 #include "pico/stdlib.h"
 #include "class/hid/hid.h"
+#include "pico/sync.h"
+#include <lua.h>
+
+extern lua_State *paramQueue;
+extern critical_section_t paramQueueLock;
 
 //--------------------------------------------------------------------+
 // USB HID
@@ -34,10 +39,20 @@ static inline void process_kbd_report(hid_keyboard_report_t const *p_new_report)
                 bool const is_shift =
                         p_new_report->modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
                 uint8_t ch = keycode2ascii[p_new_report->keycode[i]][is_shift ? 1 : 0];
-                //putchar(ch);
-                //if (ch == '\r') putchar('\n'); // added new line for enter key
-
-                //fflush(stdout); // flush right away, else nanolib will wait for newline
+                lua_State *param;
+                char tmp[2] = {ch, 0};
+                critical_section_enter_blocking(&paramQueueLock);
+                param = lua_newthread(paramQueue);
+                lua_pushstring(param, "key");
+                lua_pushinteger(param, p_new_report->keycode[i]);
+                lua_pushboolean(param, 0);
+                if (ch) {
+                    param = lua_newthread(paramQueue);
+                    lua_pushstring(param, "char");
+                    lua_pushstring(param, tmp);
+                }
+                critical_section_exit(&paramQueueLock);
+                __sev();
             }
         }
         // TODO example skips key released
@@ -153,10 +168,15 @@ void hid_task(void) {
 
 void inputCore() {
     tusb_init();
+    gpio_put(25, 0);
+    unsigned char report = 0;
     while (1) {
+        tuh_task();
 #if CFG_TUH_HID_KEYBOARD || CFG_TUH_HID_MOUSE
         hid_task();
 #endif
-        sleep_ms(50);
+        //sleep_ms(50);
+        report = !report;
+        gpio_put(25, report);
     }
 }

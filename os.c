@@ -4,99 +4,36 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
-#include "queue.h"
-
-struct time_t_list {
-    time_t val;
-    int id;
-    struct time_t_list * next;
-};
-
-struct double_list {
-    double val;
-    int id;
-    struct double_list * next;
-};
+#include "pico/sync.h"
+#include "pico/time.h"
 
 int running = 1;
 const char * label;
 bool label_defined = false;
-queue_t eventQueue;
 lua_State * paramQueue;
-struct time_t_list * timers = NULL;
-struct double_list * alarms = NULL;
-int nextTimerID = 0;
-int nextAlarmID = 0;
+critical_section_t paramQueueLock;
 
 int getNextEvent(lua_State *L, const char * filter) {
-    const char * ev;
-    struct time_t_list * oldt;
-    struct double_list * olda;
-    time_t t;
-    struct tm tm;
-    int ch, cch, count;
-    char tmp[2];
-    lua_State *param = lua_newthread(paramQueue);
-    do {
-        while (queue_size(&eventQueue) == 0) {
-            if (timers && timers->val == 0) {
-                oldt = timers;
-                timers = timers->next;
-                free(oldt);
-            }
-            if (alarms && alarms->val == -1) {
-                olda = alarms;
-                alarms = alarms->next;
-                free(olda);
-            }
-            t = time(NULL);
-            tm = *localtime(&t);
-            for (oldt = timers; oldt; oldt = oldt->next) {
-                if (t == oldt->val) {
-                    lua_pushinteger(param, oldt->id);
-                    queue_push(&eventQueue, "timer");
-                    param = lua_newthread(paramQueue);
-                }
-            }
-            for (olda = alarms; olda; olda = olda->next) {
-                if ((double)tm.tm_hour + ((double)tm.tm_min/60.0) + ((double)tm.tm_sec/3600.0) == olda->val) {
-                    lua_pushinteger(param, olda->id);
-                    queue_push(&eventQueue, "alarm");
-                    param = lua_newthread(paramQueue);
-                }
-            }
-            /*ch = getch();
-            if (ch != 0) {
-                if ((ch >= 32 && ch < 128)) {
-                    tmp[0] = ch;
-                    lua_pushstring(param, tmp);
-                    queue_push(&eventQueue, "char");
-                    param = lua_newthread(paramQueue);
-                }
-                cch = getKey(ch);
-                if (cch != 0) {
-                    lua_pushinteger(param, cch);
-                    lua_pushboolean(param, false);
-                    queue_push(&eventQueue, "key");
-                    param = lua_newthread(paramQueue);
-                }
-            }*/
-        }
-        ev = queue_front(&eventQueue);
-        queue_pop(&eventQueue);
-    } while (strlen(filter) > 0 && strcmp(ev, filter) != 0);
-    lua_pop(paramQueue, 1);
+    int count;
+    lua_State *param;
+    absolute_time_t timeout_time = make_timeout_time_us(500);
+    while (1) {
+        do {
+            critical_section_enter_blocking(&paramQueueLock);
+            if (lua_gettop(paramQueue)) break;
+            critical_section_exit(&paramQueueLock);
+        } while (best_effort_wfe_or_timeout(timeout_time));
+    }
     param = lua_tothread(paramQueue, 1);
     if (param == NULL) return 0;
     count = lua_gettop(param);
     if (!lua_checkstack(L, count + 1)) {
-        printf("Could not allocate enough space in the stack for %d elements, skipping event \"%s\"\n", count, ev);
+        printf("Could not allocate enough space in the stack for %d elements, skipping event\n", count);
         return 0;
     }
-    lua_pushstring(L, ev);
     lua_xmove(param, L, count);
     lua_remove(paramQueue, 1);
-    return count + 1;
+    return count;
 }
 
 int os_getComputerID(lua_State *L) {lua_pushinteger(L, 0); return 1;}
@@ -113,13 +50,12 @@ int os_setComputerLabel(lua_State *L) {
 }
 
 int os_queueEvent(lua_State *L) {
-    const char * name;
     lua_State *param;
     int count = lua_gettop(L);
-    name = lua_tostring(L, 1);
+    critical_section_enter_blocking(&paramQueueLock);
     param = lua_newthread(paramQueue);
-    lua_xmove(L, param, count - 1);
-    queue_push(&eventQueue, name);
+    lua_xmove(L, param, count);
+    critical_section_exit(&paramQueueLock);
     return 0;
 }
 
@@ -134,32 +70,24 @@ int os_clock(lua_State *L) {
     return 1;
 }
 
+static int64_t timer(alarm_id_t id, void* ud) {
+    lua_State *param;
+    critical_section_enter_blocking(&paramQueueLock);
+    param = lua_newthread(paramQueue);
+    lua_pushstring(param, (const char *)ud);
+    lua_pushinteger(param, id);
+    critical_section_exit(&paramQueueLock);
+    __sev();
+    return 0;
+}
+
 int os_startTimer(lua_State *L) {
-    struct time_t_list * n = (struct time_t_list*)malloc(sizeof(struct time_t_list));
-    n->val = time(0) + lua_tointeger(L, 1);
-    n->id = nextTimerID++;
-    n->next = timers;
-    timers = n;
-    lua_pushinteger(L, n->id);
+    lua_pushinteger(L, add_alarm_in_ms(luaL_checknumber(L, 1) * 1000, timer, "timer", 1));
     return 1;
 }
 
 int os_cancelTimer(lua_State *L) {
-    struct time_t_list * old, *old2;
-    int id = lua_tointeger(L, 1);
-    if (timers && id == timers->id) {
-        old = timers;
-        timers = timers->next;
-        free(old);
-    } else {
-        for (old = timers, old2 = NULL; old; old2 = old, old = old->next) {
-            if (old->id == id) {
-                if (old2) old2->next = old->next;
-                free(old);
-                return 0;
-            }
-        }
-    }
+    cancel_alarm(luaL_checkinteger(L, 1));
     return 0;
 }
 
@@ -220,31 +148,13 @@ int os_day(lua_State *L) {
 }
 
 int os_setAlarm(lua_State *L) {
-    struct double_list * n = (struct double_list*)malloc(sizeof(struct double_list));
-    n->val = lua_tonumber(L, 1);
-    n->id = nextAlarmID++;
-    n->next = alarms;
-    alarms = n;
-    lua_pushinteger(L, n->id);
+    // TODO: make this do what it's supposed to
+    lua_pushinteger(L, add_alarm_in_ms(luaL_checknumber(L, 1) * 1000, timer, "alarm", 1));
     return 1;
 }
 
 int os_cancelAlarm(lua_State *L) {
-    struct double_list * old, *old2;
-    int id = lua_tointeger(L, 1);
-    if (alarms && id == alarms->id) {
-        old = alarms;
-        alarms = alarms->next;
-        free(old);
-    } else {
-        for (old = alarms, old2 = NULL; old; old2 = old, old = old->next) {
-            if (old->id == id) {
-                if (old2) old2->next = old->next;
-                free(old);
-                return 0;
-            }
-        }
-    }
+    cancel_alarm(luaL_checkinteger(L, 1));
     return 0;
 }
 

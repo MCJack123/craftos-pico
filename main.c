@@ -1,7 +1,7 @@
-#include <lauxlib.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <lauxlib.h>
 #include "bit.h"
 #include "fs.h"
 #include "os.h"
@@ -9,9 +9,14 @@
 #include "redstone.h"
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
+#include "pico/sync.h"
+#include "pico/time.h"
+#include "bsp/board.h"
+#include "tusb.h"
 
 extern void inputCore();
 extern lua_State *paramQueue;
+extern critical_section_t paramQueueLock;
 extern const char * standaloneBIOS;
 extern size_t standaloneBIOSSize;
 size_t total_alloc = 0;
@@ -19,7 +24,7 @@ bool collecting = false;
 
 void * allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
     if (total_alloc > 200000 && !collecting) {
-        printf("memory warning: %d\r\n", total_alloc);
+        //printf("memory warning: %d\r\n", total_alloc);
         collecting = true;
         lua_gc((lua_State*)ud, LUA_GCCOLLECT, 0);
         collecting = false;
@@ -49,10 +54,14 @@ int main() {
     stdout_uart_init();
     uart_set_baudrate(uart0, 115200);
     printf("CraftOS is initializing...\n");
-    //multicore_launch_core1(inputCore);
     gpio_init(25);
     gpio_set_dir(25, 1);
     gpio_put(25, 1);
+
+    board_init();
+    alarm_pool_init_default();
+    critical_section_init(&paramQueueLock);
+    multicore_launch_core1(inputCore);
 
 start:
     /*

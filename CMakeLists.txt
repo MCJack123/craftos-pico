@@ -17,7 +17,6 @@ add_executable(craftos
     lib.c
     main.c
     os.c
-    queue.c
     term.c
     vga.c
     craftos2-lua/src/lauxlib.c
@@ -53,7 +52,7 @@ add_executable(craftos
     craftos2-lua/src/ldo.c
 )
 
-target_include_directories(craftos PRIVATE craftos2-lua/include)
+target_include_directories(craftos PRIVATE craftos2-lua/include ${CMAKE_CURRENT_LIST_DIR})
 target_compile_options(craftos PRIVATE -Werror-implicit-function-declaration)
 
 # Add pico_stdlib library which aggregates commonly used features
