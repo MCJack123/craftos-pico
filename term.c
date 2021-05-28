@@ -5,7 +5,9 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+mutex_t screenLock;
 int cursorX = 0, cursorY = 0, cursorBlink = 0;
+int changed = 0;
 unsigned char current_colors = 0xF0;
 unsigned char screen[TERM_HEIGHT*TERM_WIDTH];
 unsigned char colors[TERM_HEIGHT*TERM_WIDTH];
@@ -29,9 +31,12 @@ unsigned int palette[16] = {
 };
 
 void termInit() {
+    mutex_init(&screenLock);
+    mutex_enter_blocking(&screenLock);
     memset(screen, ' ', TERM_HEIGHT * TERM_WIDTH);
     memset(colors, current_colors, TERM_HEIGHT * TERM_WIDTH);
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
 }
 
 void termClose() {
@@ -42,49 +47,57 @@ int term_write(lua_State *L) {
     size_t len = 0;
     const char * str = luaL_checklstring(L, 1, &len);
     if (cursorY < 0 || cursorY >= TERM_HEIGHT) return 0;
+    mutex_enter_blocking(&screenLock);
     for (; len > 0 && cursorX < TERM_WIDTH; len--, str++) {
         if (cursorX >= 0) {
             screen[cursorY*TERM_WIDTH+cursorX] = *str;
             colors[cursorY*TERM_WIDTH+cursorX++] = current_colors;
         }
     }
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
 int term_scroll(lua_State *L) {
     int lines = luaL_checkinteger(L, 1);
+    mutex_enter_blocking(&screenLock);
     if (lines > 0 ? (unsigned)lines >= TERM_HEIGHT : (unsigned)-lines >= TERM_HEIGHT) {
         // scrolling more than the height is equivalent to clearing the screen
         memset(screen, ' ', TERM_HEIGHT * TERM_WIDTH);
         memset(colors, current_colors, TERM_HEIGHT * TERM_WIDTH);
-        redrawTerm();
+        changed = 1;
     } else if (lines > 0) {
         memmove(screen, screen + lines * TERM_WIDTH, (TERM_HEIGHT - lines) * TERM_WIDTH);
         memset(screen + (TERM_HEIGHT - lines) * TERM_WIDTH, ' ', lines * TERM_WIDTH);
         memmove(colors, colors + lines * TERM_WIDTH, (TERM_HEIGHT - lines) * TERM_WIDTH);
         memset(colors + (TERM_HEIGHT - lines) * TERM_WIDTH, current_colors, lines * TERM_WIDTH);
-        redrawTerm();
+        changed = 1;
     } else if (lines < 0) {
         memmove(screen - lines * TERM_WIDTH, screen, (TERM_HEIGHT + lines) * TERM_WIDTH);
         memset(screen, ' ', -lines * TERM_WIDTH);
         memmove(colors - lines * TERM_WIDTH, colors, (TERM_HEIGHT + lines) * TERM_WIDTH);
         memset(colors, current_colors, -lines * TERM_WIDTH);
-        redrawTerm();
+        changed = 1;
     }
+    mutex_exit(&screenLock);
     return 0;
 }
 
 int term_setCursorPos(lua_State *L) {
+    mutex_enter_blocking(&screenLock);
     cursorX = luaL_checkinteger(L, 1) - 1;
     cursorY = luaL_checkinteger(L, 2) - 1;
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
 int term_setCursorBlink(lua_State *L) {
+    mutex_enter_blocking(&screenLock);
     cursorBlink = lua_toboolean(L, 1);
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
@@ -101,17 +114,21 @@ int term_getSize(lua_State *L) {
 }
 
 int term_clear(lua_State *L) {
+    mutex_enter_blocking(&screenLock);
     memset(screen, ' ', TERM_HEIGHT * TERM_WIDTH);
     memset(colors, current_colors, TERM_HEIGHT * TERM_WIDTH);
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
 int term_clearLine(lua_State *L) {
     if (cursorY < 0 || cursorY >= TERM_HEIGHT) return 0;
+    mutex_enter_blocking(&screenLock);
     memset(screen + (cursorY * TERM_WIDTH), ' ', TERM_HEIGHT * TERM_WIDTH);
     memset(colors + (cursorY * TERM_WIDTH), current_colors, TERM_HEIGHT * TERM_WIDTH);
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
@@ -160,13 +177,15 @@ int term_blit(lua_State *L) {
     const char * bg = luaL_checklstring(L, 3, &bl);
     if (len != fl || fl != bl) luaL_error(L, "Arguments must be the same length");
     if (cursorY < 0 || cursorY >= TERM_HEIGHT) return 0;
+    mutex_enter_blocking(&screenLock);
     for (; len > 0 && cursorX < TERM_WIDTH; len--, str++, fg++, bg++) {
         if (cursorX >= 0) {
             screen[cursorY*TERM_WIDTH+cursorX] = *str;
             colors[cursorY*TERM_WIDTH+cursorX++] = htoi(*bg, 15) << 4 | htoi(*fg, 0);
         }
     }
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 
@@ -182,9 +201,11 @@ int term_getPaletteColor(lua_State *L) {
 int term_setPaletteColor(lua_State *L) {
     int color = log2i(lua_tointeger(L, 1));
     if (color > 15) luaL_error(L, "Invalid color");
+    mutex_enter_blocking(&screenLock);
     if (lua_isnoneornil(L, 3)) palette[color] = luaL_checkinteger(L, 2);
     else palette[color] = (unsigned int)(luaL_checknumber(L, 2) * 255) << 16 | (unsigned int)(luaL_checknumber(L, 3) * 255) << 16 | (unsigned int)(luaL_checknumber(L, 4) * 255);
-    redrawTerm();
+    changed = 1;
+    mutex_exit(&screenLock);
     return 0;
 }
 

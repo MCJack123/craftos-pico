@@ -6,6 +6,7 @@
 #include <time.h>
 #include "pico/sync.h"
 #include "pico/time.h"
+#include "pico/stdio_uart.h"
 
 int running = 1;
 const char * label;
@@ -13,26 +14,49 @@ bool label_defined = false;
 lua_State * paramQueue;
 critical_section_t paramQueueLock;
 
+static const unsigned char keymap[] = {0, 0, 0, 0, 0, 0, 0, 0, 14, 15, 28, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                       57, 2, 40, 4, 5, 6, 8, 40, 10, 11, 9, 13, 51, 12, 52, 53, 11, 2, 3, 4, 5, 6, 7, 8, 9, 10, 39, 39, 51, 13, 52, 53,
+                                       3, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44, 26, 43, 27, 7, 12,
+                                       41, 30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44, 26, 43, 27, 41, 14};
+
 int getNextEvent(lua_State *L, const char * filter) {
     int count;
     lua_State *param;
+    char tmp[2] = {0, 0};
     absolute_time_t timeout_time = make_timeout_time_us(500);
-    while (1) {
+    int finished = 1;
+    while (finished) {
         do {
             critical_section_enter_blocking(&paramQueueLock);
-            if (lua_gettop(paramQueue)) break;
+            while (uart_is_readable(uart0)) {
+                uart_read_blocking(uart0, tmp, 1);
+                if (!tmp[0] || tmp[0] > 127 || !keymap[tmp[0]]) continue;
+                param = lua_newthread(paramQueue);
+                lua_pushstring(param, "key");
+                lua_pushinteger(param, keymap[tmp[0]]);
+                lua_pushboolean(param, 0);
+                if (tmp[0] >= 32 && tmp[0] < 127) {
+                    param = lua_newthread(paramQueue);
+                    lua_pushstring(param, "char");
+                    lua_pushstring(param, tmp);
+                }
+            }
+            if (lua_gettop(paramQueue)) {finished = 0; break;}
             critical_section_exit(&paramQueueLock);
         } while (best_effort_wfe_or_timeout(timeout_time));
     }
     param = lua_tothread(paramQueue, 1);
-    if (param == NULL) return 0;
+    if (param == NULL) {critical_section_exit(&paramQueueLock); return 0;}
     count = lua_gettop(param);
     if (!lua_checkstack(L, count + 1)) {
         printf("Could not allocate enough space in the stack for %d elements, skipping event\n", count);
+        critical_section_exit(&paramQueueLock);
         return 0;
     }
     lua_xmove(param, L, count);
     lua_remove(paramQueue, 1);
+    lua_gc(L, LUA_GCCOLLECT, 0);
+    critical_section_exit(&paramQueueLock);
     return count;
 }
 

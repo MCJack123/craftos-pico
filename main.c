@@ -13,6 +13,7 @@
 #include "pico/time.h"
 #include "bsp/board.h"
 #include "tusb.h"
+#include "pico/printf.h"
 
 extern void inputCore();
 extern lua_State *paramQueue;
@@ -20,14 +21,15 @@ extern critical_section_t paramQueueLock;
 extern const char * standaloneBIOS;
 extern size_t standaloneBIOSSize;
 size_t total_alloc = 0;
-bool collecting = false;
+bool collecting = true;
 
 void * allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
-    if (total_alloc > 200000 && !collecting) {
-        //printf("memory warning: %d\r\n", total_alloc);
+    if (total_alloc > 175000 && !collecting) {
+        printf("memory warning: %d ", total_alloc);
         collecting = true;
-        lua_gc((lua_State*)ud, LUA_GCCOLLECT, 0);
+        lua_gc(*(lua_State**)ud, LUA_GCSTEP, 0);
         collecting = false;
+        printf("%d\r\n", total_alloc);
     }
     if (osize == 0) {
         if (total_alloc > 225000) return NULL;
@@ -43,6 +45,13 @@ void * allocf(void* ud, void* ptr, size_t osize, size_t nsize) {
         total_alloc += nsize;
         return realloc(ptr, nsize);
     }
+}
+
+static int panicf (lua_State *L) {
+  (void)L;  /* to avoid warnings */
+  printf("PANIC: unprotected error in call to Lua API (%s)\n",
+                   lua_tostring(L, -1));
+  return 0;
 }
 
 int main() {
@@ -69,7 +78,8 @@ start:
      * all the time.
      */
     L = lua_newstate(allocf, &L);
-    lua_gc(L, LUA_GCSETPAUSE, 100);
+    lua_atpanic(L, panicf);
+    lua_gc(L, LUA_GCSETPAUSE, 0);
     lua_gc(L, LUA_GCSETSTEPMUL, 125);
 
     coro = lua_newthread(L);

@@ -205,7 +205,7 @@ int fs_open(lua_State *L) {
         lua_newuserdata(L, sizeof(stream_t));
         stream_t * strm = (stream_t*)lua_touserdata(L, -1);
         strm->base = strm->cur = e->data;
-        strm->eof = e->data + e->size();
+        strm->eof = e->data + e->sz;
         strm->open = true;
 
         int pos = lua_gettop(L);

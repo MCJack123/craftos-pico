@@ -4,6 +4,7 @@
 #include "pico/stdlib.h"
 #include "class/hid/hid.h"
 #include "pico/sync.h"
+#include "term.h"
 #include <lua.h>
 
 extern lua_State *paramQueue;
@@ -169,13 +170,20 @@ void hid_task(void) {
 void inputCore() {
     tusb_init();
     gpio_put(25, 0);
+    while (!changed);
     unsigned char report = 0;
     while (1) {
         tuh_task();
 #if CFG_TUH_HID_KEYBOARD || CFG_TUH_HID_MOUSE
         hid_task();
 #endif
-        //sleep_ms(50);
+        if (changed) {
+            mutex_enter_blocking(&screenLock);
+            redrawTerm();
+            mutex_exit(&screenLock);
+            changed = 0;
+        }
+        sleep_ms(50);
         report = !report;
         gpio_put(25, report);
     }

@@ -56,7 +56,7 @@ target_include_directories(craftos PRIVATE craftos2-lua/include ${CMAKE_CURRENT_
 target_compile_options(craftos PRIVATE -Werror-implicit-function-declaration)
 
 # Add pico_stdlib library which aggregates commonly used features
-target_link_libraries(craftos pico_stdlib pico_stdio_uart pico_multicore tinyusb_host tinyusb_board)
+target_link_libraries(craftos pico_stdlib pico_stdio_uart pico_multicore pico_printf tinyusb_host tinyusb_board)
 
 # create map/bin/hex/uf2 file in addition to ELF.
 pico_add_extra_outputs(craftos)
