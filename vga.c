@@ -22,7 +22,7 @@ void redrawTerm() {
                 cur += sprintf(cur, "\x1b[%d;%dm", fgmap(lastc), bgmap(lastc));
             }
             cur += sprintf(cur, "%c", screen[y*TERM_WIDTH+x]);
-            if (cur > buf + 4050) {
+            if (cur > buf + 4000) {
                 uart_write_blocking(uart0, buf, cur - buf);
                 cur = buf;
             }

@@ -265,42 +265,22 @@ int fs_getDir(lua_State *L) {
     return 1;
 }
 
-const char * fs_keys[16] = {
-    "list",
-    "exists",
-    "isDir",
-    "isReadOnly",
-    "getName",
-    "getDrive",
-    "getSize",
-    "getFreeSpace",
-    "makeDir",
-    "move",
-    "copy",
-    "delete",
-    "combine",
-    "open",
-    "find",
-    "getDir"
+luaL_Reg fs_lib[] = {
+    {"list", fs_list},
+    {"exists", fs_exists},
+    {"isDir", fs_isDir},
+    {"isReadOnly", fs_isReadOnly},
+    {"getName", fs_getName},
+    {"getDrive", fs_getDrive},
+    {"getSize", fs_getSize},
+    {"getFreeSpace", fs_getFreeSpace},
+    {"makeDir", fs_makeDir},
+    {"move", fs_move},
+    {"copy", fs_copy},
+    {"delete", fs_delete},
+    {"combine", fs_combine},
+    {"open", fs_open},
+    {"find", fs_find},
+    {"getDir", fs_getDir},
+    {NULL, NULL}
 };
-
-lua_CFunction fs_values[16] = {
-    fs_list,
-    fs_exists,
-    fs_isDir,
-    fs_isReadOnly,
-    fs_getName,
-    fs_getDrive,
-    fs_getSize,
-    fs_getFreeSpace,
-    fs_makeDir,
-    fs_move,
-    fs_copy,
-    fs_delete,
-    fs_combine,
-    fs_open,
-    fs_find,
-    fs_getDir
-};
-
-library_t fs_lib = {"fs", 16, fs_keys, fs_values};

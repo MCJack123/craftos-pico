@@ -1,4 +1,4 @@
-#include "lib.h"
+#include <lauxlib.h>
 
 static int bit_band(lua_State *L) {
     unsigned int a, b;
@@ -54,24 +54,13 @@ static int bit_blogic_rshift(lua_State *L) {
     return 1;
 }
 
-static const char * bit_keys[7] = {
-    "band",
-    "bor",
-    "bnot",
-    "bxor",
-    "blshift",
-    "brshift",
-    "blogic_rshift"
+static luaL_Reg bit_lib[] = {
+    {"band", bit_band},
+    {"bor", bit_bor},
+    {"bnot", bit_bnot},
+    {"bxor", bit_bxor},
+    {"blshift", bit_blshift},
+    {"brshift", bit_brshift},
+    {"blogic_rshift", bit_blogic_rshift},
+    {NULL, NULL}
 };
-
-static lua_CFunction bit_values[7] = {
-    bit_band,
-    bit_bor,
-    bit_bnot,
-    bit_bxor,
-    bit_blshift,
-    bit_brshift,
-    bit_blogic_rshift
-};
-
-static library_t bit_lib = {"bit", 7, bit_keys, bit_values};

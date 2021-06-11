@@ -14,18 +14,19 @@ add_executable(craftos
     fs_standalone.cpp
     fs.cpp
     hid.c
-    lib.c
     main.c
     os.c
     term.c
     vga.c
+    lua-apis/colors.c
+    lua-apis/keys.c
+    lua-apis/parallel.c
+    lua-apis/vector.c
     craftos2-lua/src/lauxlib.c
-    craftos2-lua/src/liolib.c
     craftos2-lua/src/lopcodes.c
     craftos2-lua/src/lstate.c
     craftos2-lua/src/lobject.c
     craftos2-lua/src/lmathlib.c
-    craftos2-lua/src/loadlib.c
     craftos2-lua/src/lvm.c
     craftos2-lua/src/lfunc.c
     craftos2-lua/src/lstrlib.c
@@ -34,7 +35,6 @@ add_executable(craftos
     craftos2-lua/src/lundump.c
     craftos2-lua/src/ltable.c
     craftos2-lua/src/ldump.c
-    craftos2-lua/src/loslib.c
     craftos2-lua/src/lgc.c
     craftos2-lua/src/lzio.c
     craftos2-lua/src/ldblib.c
@@ -50,10 +50,11 @@ add_executable(craftos
     craftos2-lua/src/llex.c
     craftos2-lua/src/ltm.c
     craftos2-lua/src/ldo.c
+    craftos2-lua/src/lrotable.c
 )
 
 target_include_directories(craftos PRIVATE craftos2-lua/include ${CMAKE_CURRENT_LIST_DIR})
-target_compile_options(craftos PRIVATE -Werror-implicit-function-declaration)
+target_compile_options(craftos PRIVATE -Werror-implicit-function-declaration -DLUA_OPTIMIZE_MEMORY=2)
 
 # Add pico_stdlib library which aggregates commonly used features
 target_link_libraries(craftos pico_stdlib pico_stdio_uart pico_multicore pico_printf tinyusb_host tinyusb_board)

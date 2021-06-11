@@ -1,2 +1,2 @@
-#include "lib.h"
-extern library_t fs_lib;
+#include <lauxlib.h>
+extern luaL_Reg fs_lib[];
