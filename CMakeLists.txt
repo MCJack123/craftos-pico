@@ -21,7 +21,6 @@ add_executable(craftos
     lua-apis/colors.c
     lua-apis/keys.c
     lua-apis/parallel.c
-    lua-apis/vector.c
     craftos2-lua/src/lauxlib.c
     craftos2-lua/src/lopcodes.c
     craftos2-lua/src/lstate.c
