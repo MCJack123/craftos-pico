@@ -17,7 +17,9 @@ static int runUntilLimit(lua_State *L, int count, int limit) {
                     continue;
                 }
                 lua_pop(L, 1);
+                if (!lua_checkstack(L, args)) luaL_error(L, "not enough memory");
                 for (j = 1; j <= args; j++) lua_pushvalue(L, count + 1 + j);
+                if (!lua_checkstack(thread, args)) luaL_error(L, "not enough memory");
                 lua_xmove(L, thread, args);
             }
             status = lua_resume(thread, args);
@@ -27,9 +29,11 @@ static int runUntilLimit(lua_State *L, int count, int limit) {
                 living--;
             } else if (status == LUA_YIELD) {
                 lua_settop(thread, 1);
+                lua_checkstack(L, 1);
                 lua_xmove(thread, L, 1);
                 lua_rawseti(L, count + 1, i);
             } else {
+                lua_checkstack(L, 1);
                 lua_xmove(thread, L, 1);
                 lua_error(L);
             }

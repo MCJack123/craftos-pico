@@ -288,7 +288,7 @@ int os_print(lua_State *L) {
     return 0;
 }
 
-luaL_Reg os_lib[] = {
+const luaL_Reg os_lib[] = {
     {"getComputerID", os_getComputerID},
     {"getComputerLabel", os_getComputerLabel},
     {"setComputerLabel", os_setComputerLabel},

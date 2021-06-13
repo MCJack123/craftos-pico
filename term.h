@@ -9,7 +9,6 @@ extern unsigned char colors[TERM_HEIGHT*TERM_WIDTH];
 extern unsigned int palette[16];
 extern int cursorX, cursorY, cursorBlink;
 extern int changed;
-extern luaL_Reg term_lib[];
 extern void termInit();
 extern void termClose();
 extern void redrawTerm();

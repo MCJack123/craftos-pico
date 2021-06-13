@@ -3,7 +3,7 @@ static int rs_getSides(lua_State *L) {lua_newtable(L); return 1;}
 static int rs_false(lua_State *L) {lua_pushboolean(L, 0); return 1;}
 static int rs_0(lua_State *L) {lua_pushinteger(L, 0); return 1;}
 static int rs_none(lua_State *L) {return 0;}
-static luaL_Reg rs_lib[] = {
+const luaL_Reg rs_lib[] = {
     {"getSides", rs_getSides},
     {"getInput", rs_false},
     {"setOutput", rs_none},

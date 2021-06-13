@@ -243,14 +243,14 @@ static void process_mouse_report(hid_mouse_report_t const * report)
 }
 
 void inputCore() {
-    tusb_init();
+    //tusb_init();
     gpio_put(25, 0);
     while (!changed);
     unsigned char report = 0;
     while (1) {
-        tuh_task();
+        //tuh_task();
 #if CFG_TUH_HID_KEYBOARD || CFG_TUH_HID_MOUSE
-        hid_app_task();
+        //hid_app_task();
 #endif
         if (changed) {
             mutex_enter_blocking(&screenLock);

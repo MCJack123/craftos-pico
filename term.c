@@ -209,7 +209,7 @@ int term_setPaletteColor(lua_State *L) {
     return 0;
 }
 
-luaL_Reg term_lib[] = {
+const luaL_Reg term_lib[] = {
     {"write", term_write},
     {"scroll", term_scroll},
     {"setCursorPos", term_setCursorPos},

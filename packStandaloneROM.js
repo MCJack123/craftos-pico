@@ -2,7 +2,7 @@
 // Generates an fs_standalone.cpp file that can be used for standalone builds
 const fs = require("fs");
 let out = fs.openSync("fs_standalone.cpp", "w")
-fs.writeSync(out, '#include "FileEntry.hpp"\nFileEntry FileEntry::NULL_ENTRY = {false, NULL, {}};\n')
+fs.writeSync(out, '#include "FileEntry.hpp"\nconst FileEntry FileEntry::NULL_ENTRY = {false, NULL, {}};\n')
 function writeDir(name, path) {
     console.log("Reading directory " + path);
     let data = "";
@@ -23,14 +23,14 @@ function writeDir(name, path) {
         }
         count++;
     }
-    fs.writeSync(out, "static DirEntry dir_" + name + "[] = {\n" + data + "    {NULL, FileEntry::NULL_ENTRY}\n};\n");
+    fs.writeSync(out, "static const DirEntry dir_" + name + "[] = {\n" + data + "    {NULL, FileEntry::NULL_ENTRY}\n};\n");
     return count;
 }
 const c = writeDir("rom", "rom");
-fs.writeSync(out, "FileEntry standaloneROM = {true, NULL, dir_rom, " + c + "};\n\nconst char * standaloneBIOS = ");
+fs.writeSync(out, "extern const FileEntry standaloneROM = {true, NULL, dir_rom, " + c + "};\n\nconst char * standaloneBIOS = ");
 console.log("Reading BIOS");
 const bios = fs.readFileSync("bios.lua");
 let s = "\"";
 for (let b of bios) s += "\\x" + (b < 16 ? "0" : "") + b.toString(16);
-fs.writeSync(out, s + "\";\nsize_t standaloneBIOSSize = " + bios.length + ";");
+fs.writeSync(out, s + "\";\nextern const size_t standaloneBIOSSize = " + bios.length + ";");
 fs.closeSync(out);

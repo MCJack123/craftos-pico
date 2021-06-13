@@ -10,17 +10,25 @@ project(craftos-pico)
 pico_sdk_init()
 
 add_executable(craftos
+    bit.c
     fs_handle.cpp
     fs_standalone.cpp
     fs.cpp
     hid.c
     main.c
     os.c
+    peripheral.c
+    redstone.c
     term.c
     vga.c
     lua-apis/colors.c
     lua-apis/keys.c
+    lua-apis/help.cpp
     lua-apis/parallel.c
+    lua-apis/rednet.c
+    lua-apis/settings.c
+    lua-apis/term.c
+    lua-apis/vector.c
     craftos2-lua/src/lauxlib.c
     craftos2-lua/src/lopcodes.c
     craftos2-lua/src/lstate.c
@@ -50,13 +58,14 @@ add_executable(craftos
     craftos2-lua/src/ltm.c
     craftos2-lua/src/ldo.c
     craftos2-lua/src/lrotable.c
+    craftos2-lua/src/liolib.c
 )
 
 target_include_directories(craftos PRIVATE craftos2-lua/include ${CMAKE_CURRENT_LIST_DIR})
 target_compile_options(craftos PRIVATE -Werror-implicit-function-declaration -DLUA_OPTIMIZE_MEMORY=2)
 
 # Add pico_stdlib library which aggregates commonly used features
-target_link_libraries(craftos pico_stdlib pico_stdio_uart pico_multicore pico_printf tinyusb_host tinyusb_board)
+target_link_libraries(craftos pico_stdlib pico_stdio_uart pico_multicore pico_printf pico_malloc pico_mem_ops pico_double tinyusb_host tinyusb_board)
 
 # create map/bin/hex/uf2 file in addition to ELF.
 pico_add_extra_outputs(craftos)

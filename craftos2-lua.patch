@@ -1,3 +1,15 @@
+diff --git a/.gitignore b/.gitignore
+index a8af28a..0e82938 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,6 +1,7 @@
+ *.o
+ *.a
+ *.orig
++*.rej
+ *.lib
+ *.dll
+ *.pdb
 diff --git a/include/lauxlib.h b/include/lauxlib.h
 index a0593be..dad74c1 100644
 --- a/include/lauxlib.h
@@ -116,7 +128,7 @@ index 334b2c7..7541fd2 100644
  #define lua_islightuserdata(L,n)	(lua_type(L, (n)) == LUA_TLIGHTUSERDATA)
  #define lua_isnil(L,n)		(lua_type(L, (n)) == LUA_TNIL)
 diff --git a/include/luaconf.h b/include/luaconf.h
-index 6423bfe..760a1ec 100644
+index 6423bfe..c7a9d0c 100644
 --- a/include/luaconf.h
 +++ b/include/luaconf.h
 @@ -370,6 +370,16 @@
@@ -136,12 +148,12 @@ index 6423bfe..760a1ec 100644
  /*
  @@ luai_apicheck is the assert macro used by the Lua-C API.
  ** CHANGE luai_apicheck if you want Lua to perform some checks in the
-@@ -759,7 +769,20 @@ union luai_Cast { double l_d; long l_l; };
+@@ -759,7 +769,22 @@ union luai_Cast { double l_d; long l_l; };
  ** without modifying the main part of the file.
  */
  
-+#define LUA_MAX_ROTABLE_NAME      16
- 
++#define LUA_MAX_ROTABLE_NAME      32
++
 +/* LUA_OPTIMIZE_MEMORY:
 +   0 - no optimizations
 +   1 - optimize while maitaining full compatibility with the test suite
@@ -155,12 +167,27 @@ index 6423bfe..760a1ec 100644
 +#error "Pipes not supported in aggresive optimization mode (LUA_OPTIMIZE_MEMORY=2)"
 +#endif
  
++#define LUA_OPTIMIZE_DEBUG 3
+ 
  #endif
  
 diff --git a/src/Makefile b/src/Makefile
-index 8fd4fa4..66aba00 100644
+index 8fd4fa4..ab49be6 100644
 --- a/src/Makefile
 +++ b/src/Makefile
+@@ -32,10 +32,10 @@ LIB_O=	lauxlib.o lbaselib.o ldblib.o liolib.o lmathlib.o loslib.o ltablib.o \
+ 	lstrlib.o loadlib.o linit.o lutf8lib.o lbitlib.o
+ 
+ LUA_T=	lua
+-LUA_O=	lua.o
++LUA_O=	lua.o ltests.o
+ 
+ LUAC_T=	luac
+-LUAC_O=	luac.o print.o
++LUAC_O=	luac.o print.o ltests.o
+ 
+ ALL_O= $(CORE_O) $(LIB_O) $(LUA_O) $(LUAC_O)
+ ALL_T= $(LUA_A)
 @@ -131,8 +131,8 @@ emscripten:
  lapi.o: lapi.c lua.h luaconf.h lapi.h lobject.h llimits.h ldebug.h \
    lstate.h ltm.h lzio.h lmem.h ldo.h lfunc.h lgc.h lstring.h ltable.h \
@@ -201,7 +228,7 @@ index 8fd4fa4..66aba00 100644
    ltm.h lzio.h lmem.h ldo.h lgc.h ltable.h
  ltablib.o: ltablib.c lua.h luaconf.h lauxlib.h lualib.h
 diff --git a/src/lapi.c b/src/lapi.c
-index ffc6fa1..a55a46e 100644
+index ffc6fa1..686ef7a 100644
 --- a/src/lapi.c
 +++ b/src/lapi.c
 @@ -22,6 +22,7 @@
@@ -340,7 +367,15 @@ index ffc6fa1..a55a46e 100644
    luaC_barriert(L, hvalue(o), L->top-1);
    L->top--;
    lua_unlock(L);
-@@ -958,11 +987,11 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
+@@ -922,6 +951,7 @@ LUA_API int lua_load (lua_State *L, lua_Reader reader, void *data,
+   if (!chunkname) chunkname = "?";
+   luaZ_init(L, &z, reader, data);
+   status = luaD_protectedparser(L, &z, chunkname);
++  luaC_fullgc(L);
+   lua_unlock(L);
+   return status;
+ }
+@@ -958,11 +988,11 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
    g = G(L);
    switch (what) {
      case LUA_GCSTOP: {
@@ -354,7 +389,7 @@ index ffc6fa1..a55a46e 100644
        break;
      }
      case LUA_GCCOLLECT: {
-@@ -979,6 +1008,10 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
+@@ -979,6 +1009,10 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
        break;
      }
      case LUA_GCSTEP: {
@@ -365,7 +400,7 @@ index ffc6fa1..a55a46e 100644
        lu_mem a = (cast(lu_mem, data) << 10);
        if (a <= g->totalbytes)
          g->GCthreshold = g->totalbytes - a;
-@@ -1003,6 +1036,24 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
+@@ -1003,6 +1037,24 @@ LUA_API int lua_gc (lua_State *L, int what, int data) {
        g->gcstepmul = data;
        break;
      }
@@ -390,7 +425,7 @@ index ffc6fa1..a55a46e 100644
      default: res = -1;  /* invalid option */
    }
    lua_unlock(L);
-@@ -1029,10 +1080,39 @@ LUA_API int lua_error (lua_State *L) {
+@@ -1029,10 +1081,39 @@ LUA_API int lua_error (lua_State *L) {
  LUA_API int lua_next (lua_State *L, int idx) {
    StkId t;
    int more;
@@ -432,8 +467,17 @@ index ffc6fa1..a55a46e 100644
    if (more) {
      api_incr_top(L);
    }
+@@ -1144,7 +1225,7 @@ LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n) {
+ static UpVal **getupvalref (lua_State *L, int fidx, int n) {
+   LClosure *f;
+   StkId fi = index2adr(L, fidx);
+-  api_check(L, ttisLclosure(fi)/*, "Lua function expected"*/);
++  //api_check(L, ttisLclosure(fi)/*, "Lua function expected"*/);
+   f = &clvalue(fi)->l;
+   api_check(L, (1 <= n && n <= f->p->sizeupvalues)/*, "invalid upvalue index"*/);
+   return &f->upvals[n - 1];  /* get its upvalue pointer */
 diff --git a/src/lauxlib.c b/src/lauxlib.c
-index a70379e..34a9672 100644
+index a70379e..62f1c6c 100644
 --- a/src/lauxlib.c
 +++ b/src/lauxlib.c
 @@ -22,7 +22,13 @@
@@ -460,13 +504,18 @@ index a70379e..34a9672 100644
  
  /*
  ** {======================================================
-@@ -187,6 +196,14 @@ LUALIB_API void luaL_checktype (lua_State *L, int narg, int t) {
+@@ -183,10 +192,18 @@ LUALIB_API void luaL_checkstack (lua_State *L, int space, const char *mes) {
+ 
+ 
+ LUALIB_API void luaL_checktype (lua_State *L, int narg, int t) {
+-  if (lua_type(L, narg) != t)
++  if (lua_type(L, narg) != t && (t != LUA_TTABLE || lua_type(L, narg) != LUA_TROTABLE))
      tag_error(L, narg, t);
  }
  
 +LUALIB_API void luaL_checkanyfunction (lua_State *L, int narg) {
 +  if (lua_type(L, narg) != LUA_TFUNCTION && lua_type(L, narg) != LUA_TLIGHTFUNCTION) {
-+    const char *msg = lua_pushfstring(L, "function or lightfunction expected, got %s",
++    const char *msg = lua_pushfstring(L, "function expected, got %s",
 +                                      luaL_typename(L, narg));
 +    luaL_argerror(L, narg, msg);    
 +  }
@@ -614,18 +663,26 @@ index 34bdfb7..dad74c1 100644
  LUALIB_API int   (luaL_newmetatable) (lua_State *L, const char *tname);
  LUALIB_API void *(luaL_checkudata) (lua_State *L, int ud, const char *tname);
 diff --git a/src/lbaselib.c b/src/lbaselib.c
-index 2260dfd..52831a5 100644
+index 2260dfd..4699c74 100644
 --- a/src/lbaselib.c
 +++ b/src/lbaselib.c
-@@ -18,6 +18,7 @@
+@@ -18,8 +18,13 @@
  
  #include "lauxlib.h"
  #include "lualib.h"
+-
+-
 +#include "lrotable.h"
++#include "lobject.h"
++#include "lstate.h"
++#ifdef LUA_OPTIMIZE_DEBUG   
++#include "lfunc.h"
++#include "ldebug.h"
++#endif
  
  
- 
-@@ -197,9 +198,10 @@ static int luaB_gcinfo (lua_State *L) {
+ /*
+@@ -197,9 +202,10 @@ static int luaB_gcinfo (lua_State *L) {
  
  static int luaB_collectgarbage (lua_State *L) {
    static const char *const opts[] = {"stop", "restart", "collect",
@@ -638,7 +695,7 @@ index 2260dfd..52831a5 100644
    int o = luaL_checkoption(L, 1, "collect", opts);
    int ex = luaL_optint(L, 2, 0);
    int res = lua_gc(L, optsnum[o], ex);
-@@ -229,7 +231,7 @@ static int luaB_type (lua_State *L) {
+@@ -229,7 +235,7 @@ static int luaB_type (lua_State *L) {
  
  
  static int luaB_next (lua_State *L) {
@@ -647,7 +704,7 @@ index 2260dfd..52831a5 100644
    lua_settop(L, 2);  /* create a 2nd argument if there isn't one */
    if (lua_next(L, 1))
      return 2;
-@@ -242,7 +244,7 @@ static int luaB_next (lua_State *L) {
+@@ -242,7 +248,7 @@ static int luaB_next (lua_State *L) {
  
  static int luaB_pairs (lua_State *L) {
    if (lua_icontext(L)) return 3;
@@ -656,10 +713,86 @@ index 2260dfd..52831a5 100644
    if (luaL_getmetafield(L, 1, "__pairs")) {
      luaL_checktype(L, -1, LUA_TFUNCTION);
      lua_pushvalue(L, 1);
-@@ -456,34 +458,53 @@ static int luaB_newproxy (lua_State *L) {
+@@ -300,6 +306,69 @@ static int luaB_loadfile (lua_State *L) {
  }
  
  
++#ifdef LUA_OPTIMIZE_DEBUG   
++/* stripdebug([level[, function]]).  
++ * level:    1 don't discard debug
++ *           2 discard Local and Upvalue debug info
++ *           3 discard Local, Upvalue and lineno debug info.
++ * function: Function to be stripped as per setfenv except 0 not permitted. 
++ * If no arguments then the current default setting is returned.
++ * If function is omitted, this is the default setting for future compiles
++ * The function returns an estimated integer count of the bytes stripped.
++ */
++static int luaB_stripdebug (lua_State *L) {
++  int level;
++
++  if (L->top == L->base) {
++    lua_pushlightuserdata(L, &luaG_stripdebug );
++    lua_gettable(L, LUA_REGISTRYINDEX);
++    if (lua_isnil(L, -1)) {
++      lua_pop(L, 1);
++      lua_pushinteger(L, LUA_OPTIMIZE_DEBUG);
++    }
++    return 1;
++  }
++  
++  level = luaL_checkint(L, 1); 
++  if ((level <= 0) || (level > 3)) luaL_argerror(L, 1, "must in range 1-3"); 
++
++  if (L->top == L->base + 1) {
++    /* Store the default level in the registry if no function parameter */ 
++    lua_pushlightuserdata(L, &luaG_stripdebug);
++    lua_pushinteger(L, level);
++    lua_settable(L, LUA_REGISTRYINDEX);
++    lua_settop(L,0); 
++    return 0;
++  }
++
++  if (level == 1) {
++    lua_settop(L,0); 
++    lua_pushinteger(L, 0);
++    return 1;
++  }
++
++  if (!lua_isfunction(L, 2)) {
++    int scope = luaL_checkint(L, 2);
++    if (scope > 0) {
++      /* if the function parameter is a +ve integer then climb to find function */
++      lua_Debug ar;
++      lua_pop(L, 1); /* pop level as getinfo will replace it by the function */ 
++      if (lua_getstack(L, scope, &ar)) {
++        lua_getinfo(L, "f", &ar);
++      }
++    }
++  }
++  
++  if(!lua_isfunction(L, 2) || lua_iscfunction(L, -1)) luaL_argerror(L, 2, "must be a Lua Function");   
++  // lua_lock(L);
++  Proto *f = clvalue(L->base + 1)->l.p;
++  // lua_unlock(L);
++  lua_settop(L,0); 
++  lua_pushinteger(L, luaG_stripdebug(L, f, level, 1));
++  return 1;
++}
++#endif
++
+ /*
+ ** Reader for generic `load' function: `lua_load' uses the
+ ** stack for internal stuff, so the reader cannot change the
+@@ -455,35 +524,60 @@ static int luaB_newproxy (lua_State *L) {
+   return 1;
+ }
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++#define STRIPDEBUG {"stripdebug", luaB_stripdebug},
++#else
++#define STRIPDEBUG 
++#endif
++
 +#define LUA_BASE_FUNCLIST\
 +  {"assert", luaB_assert},\
 +  {"collectgarbage", luaB_collectgarbage},\
@@ -680,6 +813,7 @@ index 2260dfd..52831a5 100644
 +  {"select", luaB_select},\
 +  {"setfenv", luaB_setfenv},\
 +  {"setmetatable", luaB_setmetatable},\
++  STRIPDEBUG\
 +  {"tonumber", luaB_tonumber},\
 +  {"tostring", luaB_tostring},\
 +  {"type", luaB_type},\
@@ -701,7 +835,7 @@ index 2260dfd..52831a5 100644
 +{
 +  return luaR_findfunction(L, base_realfuncs);
 +}
-+
+ 
  static const luaL_Reg base_funcs[] = {
 -  {"assert", luaB_assert},
 -  {"collectgarbage", luaB_collectgarbage},
@@ -735,7 +869,7 @@ index 2260dfd..52831a5 100644
  
  
  /*
-@@ -643,7 +664,7 @@ static int luaB_corunning (lua_State *L) {
+@@ -643,7 +737,7 @@ static int luaB_corunning (lua_State *L) {
  }
  
  
@@ -744,7 +878,7 @@ index 2260dfd..52831a5 100644
    {"create", luaB_cocreate},
    {"resume", luaB_coresume},
    {"running", luaB_corunning},
-@@ -669,7 +690,11 @@ static void base_open (lua_State *L) {
+@@ -669,7 +763,11 @@ static void base_open (lua_State *L) {
    lua_pushvalue(L, LUA_GLOBALSINDEX);
    lua_setglobal(L, "_G");
    /* open lib into global table */
@@ -757,7 +891,7 @@ index 2260dfd..52831a5 100644
    lua_pushliteral(L, LUA_VERSION);
    lua_setglobal(L, "_VERSION");  /* set global _VERSION */
    /* `ipairs' and `pairs' need auxiliary functions as upvalues */
-@@ -688,7 +713,11 @@ static void base_open (lua_State *L) {
+@@ -688,7 +786,11 @@ static void base_open (lua_State *L) {
  
  LUALIB_API int luaopen_base (lua_State *L) {
    base_open(L);
@@ -769,6 +903,135 @@ index 2260dfd..52831a5 100644
 +#endif
  }
  
+diff --git a/src/lcode.c b/src/lcode.c
+index ce9f6e5..2f8f4dc 100644
+--- a/src/lcode.c
++++ b/src/lcode.c
+@@ -788,12 +788,93 @@ void luaK_posfix (FuncState *fs, BinOpr op, expdesc *e1, expdesc *e2) {
+   }
+ }
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++
++/*
++ * Attempted to write to last (null terminator) byte of lineinfo, so need
++ * to grow the lineinfo vector and extend the fill bytes 
++ */  
++unsigned char *growLineInfo(FuncState *fs) {
++  int i, oldsize = fs->packedlineinfoSize;
++  Proto *f = fs->f;
++  unsigned char *p, *r;
++
++  lua_assert(f->packedlineinfo==NULL || f->packedlineinfo[oldsize-1] == 0);
++  
++  /* using the macro results in a redundant if test, but what the hell */
++  luaM_growvector(fs->L, f->packedlineinfo, fs->packedlineinfoSize, fs->packedlineinfoSize, 
++                  unsigned char, MAX_INT, "code size overflow");
++  r = p = f->packedlineinfo + oldsize;
++  if (oldsize) *--r = INFO_FILL_BYTE;
++  i = fs->packedlineinfoSize - oldsize - 1;  
++  while (i--) *p++ = INFO_FILL_BYTE;
++  *p = 0;
++  return r;
++}
++
++static void generateInfoDeltaLine(FuncState *fs, int line) {
++  /* Handle first time through when lineinfo points is NULL */ 
++  unsigned char *p = fs->f->packedlineinfo ? lineInfoTop(fs) + 1 : growLineInfo(fs);
++#define addDLbyte(v) if (*p==0) p = growLineInfo(fs); *p++ = (v);
++  int delta = line - fs->lastline - 1;
++  if (delta) {
++    if (delta<0) {
++      delta = -delta - 1;
++      addDLbyte((INFO_DELTA_MASK|INFO_SIGN_MASK) | (delta & INFO_DELTA_6BITS));
++    } else {   
++      delta = delta - 1;
++      addDLbyte(INFO_DELTA_MASK | (delta & INFO_DELTA_6BITS));
++    }
++    delta >>= 6;
++    while (delta) {
++      addDLbyte(INFO_DELTA_MASK | (delta & INFO_DELTA_7BITS));
++      delta >>= 7;
++    }
++  }
++  addDLbyte(1);
++  fs->lastline = line;
++  fs->lastlineOffset = p - fs->f->packedlineinfo - 1;
++#undef addDLbyte
++}
++#endif
+ 
+ void luaK_fixline (FuncState *fs, int line) {
++#ifdef LUA_OPTIMIZE_DEBUG
++  /* The fixup line can be the same as existing one and in this case there's nothing to do */
++  if (line != fs->lastline) { 
++    /* first remove the current line reference */
++    unsigned char *p = lineInfoTop(fs);
++    lua_assert(*p < 127);
++    if (*p >1) {     
++      (*p)--;    /* this is simply decrementing the last count a multi-PC line */
++    } else {
++      /* it's a bit more complicated if it's the 1st instruction on the line */
++      int delta = 0;
++      unsigned char code;
++      /* this logic handles <i/c> [1snnnnnnn [1nnnnnnn]*]? <i/c=1> */
++      *p-- = INFO_FILL_BYTE;
++      /* work backwards over the coded delta computing the delta */  
++      while ((code=*p) & INFO_DELTA_MASK) {
++        *p-- = INFO_FILL_BYTE;
++        if (*p & INFO_DELTA_MASK) {
++          delta = delta + ((code & INFO_DELTA_7BITS)<<7);
++        } else {
++          delta += (code & INFO_DELTA_6BITS) + 1;
++          if (code & INFO_SIGN_MASK) delta = -delta;
++        }
++      }
++      /* and reposition the FuncState lastline pointers at the previous instruction count */
++      fs->lastline-= delta + 1;
++      fs->lastlineOffset = p - fs->f->packedlineinfo; 
++    }
++    /* Then add the new line reference */
++    generateInfoDeltaLine(fs, line);
++  }
++#else
+   fs->f->lineinfo[fs->pc - 1] = line;
++#endif
+ }
+ 
+-
+ static int luaK_code (FuncState *fs, Instruction i, int line) {
+   Proto *f = fs->f;
+   dischargejpc(fs);  /* `pc' will change */
+@@ -802,13 +883,28 @@ static int luaK_code (FuncState *fs, Instruction i, int line) {
+                   MAX_INT, "code size overflow");
+   f->code[fs->pc] = i;
+   /* save corresponding line information */
++#ifdef LUA_OPTIMIZE_DEBUG
++  /* note that frst time fs->lastline==0 through, so the else branch is taken */
++  if (fs->pc == fs->lineinfoLastPC+1) { 
++    if (line == fs->lastline && f->packedlineinfo[fs->lastlineOffset] < INFO_MAX_LINECNT) {
++      f->packedlineinfo[fs->lastlineOffset]++;
++    } else {
++      generateInfoDeltaLine(fs, line); 
++    }
++  } else {
++    /* The last instruction is occasionally overwritten as part of branch optimisation*/
++    lua_assert(fs->pc == fs->lineinfoLastPC);  /* panic if its anything other than this !! */
++    luaK_fixline(fs,line);
++  }
++  fs->lineinfoLastPC = fs->pc;
++#else
+   luaM_growvector(fs->L, f->lineinfo, fs->pc, f->sizelineinfo, int,
+                   MAX_INT, "code size overflow");
+   f->lineinfo[fs->pc] = line;
++#endif
+   return fs->pc++;
+ }
+ 
+-
+ int luaK_codeABC (FuncState *fs, OpCode o, int a, int b, int c) {
+   lua_assert(getOpMode(o) == iABC);
+   lua_assert(getBMode(o) != OpArgN || b == 0);
 diff --git a/src/ldblib.c b/src/ldblib.c
 index b4d54da..1a128ba 100644
 --- a/src/ldblib.c
@@ -814,7 +1077,7 @@ index b4d54da..1a128ba 100644
  
  LUALIB_API void lualib_debug_ccpc_functions(void(*scm)(lua_State *L, int), lua_CFunction debug, lua_CFunction breakpoint, lua_CFunction unsetbreakpoint) {
 diff --git a/src/ldebug.c b/src/ldebug.c
-index fadde80..46ffc8a 100644
+index fadde80..d06b4aa 100644
 --- a/src/ldebug.c
 +++ b/src/ldebug.c
 @@ -156,8 +156,8 @@ LUA_API const char *lua_setlocal (lua_State *L, const lua_Debug *ar, int n) {
@@ -828,8 +1091,119 @@ index fadde80..46ffc8a 100644
      ar->source = "=[C]";
      ar->linedefined = -1;
      ar->lastlinedefined = -1;
-@@ -200,16 +200,16 @@ static void collectvalidlines (lua_State *L, Closure *f) {
+@@ -182,34 +182,126 @@ static void info_tailcall (lua_Debug *ar) {
+   ar->nups = 0;
+ }
  
+-
+ static void collectvalidlines (lua_State *L, Closure *f) {
+   if (f == NULL || f->c.isC) {
+     setnilvalue(L->top);
+   }
+   else {
++  #  define INFO_FILL_BYTE   0x7F
++#  define INFO_DELTA_MASK  0x80
++#  define INFO_SIGN_MASK   0x40
++#  define INFO_DELTA_6BITS 0x3F
++#  define INFO_DELTA_7BITS 0x7F
++#  define INFO_MAX_LINECNT  126
++
+     Table *t = luaH_new(L, 0, 0);
++#ifdef LUA_OPTIMIZE_DEBUG
++    int line = 0;
++    unsigned char *p = f->l.p->packedlineinfo;
++    if (p) {
++      for (; *p && *p != INFO_FILL_BYTE; ) {
++        if (*p & INFO_DELTA_MASK) { /* line delta */
++          int delta = *p & INFO_DELTA_6BITS;
++          unsigned char sign = *p++ & INFO_SIGN_MASK;
++          int shift;
++          for (shift = 6; *p & INFO_DELTA_MASK; p++, shift += 7) {
++            delta += (*p & INFO_DELTA_7BITS)<<shift;
++          }
++          line += sign ? -delta : delta+2;
++        } else {
++          line++;
++        }
++       p++;
++       setbvalue(luaH_setnum(L, t, line), 1);
++      }
++    }
++#else
+     int *lineinfo = f->l.p->lineinfo;
+     int i;
+     for (i=0; i<f->l.p->sizelineinfo; i++)
+       setbvalue(luaH_setnum(L, t, lineinfo[i]), 1);
++#endif
+     sethvalue(L, L->top, t); 
+   }
+   incr_top(L);
+ }
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++/* 
++ * This may seem expensive but this is only accessed frequently in traceexec
++ * and the while loop will be executed roughly half the number of non-blank
++ * source lines in the Lua function and these tend to be short.
++ */
++int luaG_getline (const Proto *f, int pc) {
++  int line = 0, thispc = 0, nextpc;
++  unsigned char *p;
++  
++  for (p = f->packedlineinfo; *p && *p != INFO_FILL_BYTE;) {
++    if (*p & INFO_DELTA_MASK) { /* line delta */
++      int delta = *p & INFO_DELTA_6BITS;
++      unsigned char sign = *p++ & INFO_SIGN_MASK;
++      int shift;
++      for (shift = 6; *p & INFO_DELTA_MASK; p++, shift += 7) {
++        delta += (*p & INFO_DELTA_7BITS)<<shift;
++      }
++      line += sign ? -delta : delta+2;
++    } else {
++      line++;
++    }
++    lua_assert(*p<127);
++    nextpc = thispc + *p++;  
++    if (thispc <= pc && pc < nextpc) {
++      return line;
++    }
++    thispc = nextpc;
++  }
++  lua_assert(0); 
++  return 0;
++}
++
++static int stripdebug (lua_State *L, Proto *f, int level) {
++  int len = 0, sizepackedlineinfo;
++  TString* dummy;
++  switch (level) {
++    case 3:
++      sizepackedlineinfo = strlen(cast(char *, f->packedlineinfo))+1;
++      f->packedlineinfo = luaM_freearray(L, f->packedlineinfo, sizepackedlineinfo, unsigned char);
++      len += sizepackedlineinfo;
++    case 2:
++      len += f->sizelocvars * (sizeof(struct LocVar) + sizeof(dummy->tsv) + sizeof(struct LocVar *));
++      f->locvars = luaM_freearray(L, f->locvars, f->sizelocvars, struct LocVar);
++      f->upvalues = luaM_freearray(L, f->upvalues, f->sizeupvalues, TString *);
++      len += f->sizelocvars * (sizeof(struct LocVar) + sizeof(dummy->tsv) + sizeof(struct LocVar *)) +
++             f->sizeupvalues * (sizeof(dummy->tsv) + sizeof(TString *));
++      f->sizelocvars = 0;
++      f->sizeupvalues = 0;
++  }
++  return len;
++}
++
++/* This is a recursive function so it's stack size has been kept to a minimum! */
++LUAI_FUNC int luaG_stripdebug (lua_State *L, Proto *f, int level, int recv){
++  int len = 0, i;
++  if (recv != 0 && f->sizep != 0) {
++    for(i=0;i<f->sizep;i++) len += luaG_stripdebug(L, f->p[i], level, recv);
++  }
++  len += stripdebug (L, f, level);
++  return len;
++}
++#endif
++
  
  static int auxgetinfo (lua_State *L, const char *what, lua_Debug *ar,
 -                    Closure *f, CallInfo *ci) {
@@ -848,7 +1222,7 @@ index fadde80..46ffc8a 100644
          break;
        }
        case 'l': {
-@@ -217,8 +217,8 @@ static int auxgetinfo (lua_State *L, const char *what, lua_Debug *ar,
+@@ -217,8 +309,8 @@ static int auxgetinfo (lua_State *L, const char *what, lua_Debug *ar,
          break;
        }
        case 'u': {
@@ -859,7 +1233,7 @@ index fadde80..46ffc8a 100644
            ar->isvararg = 1;
            ar->nparams = 0;
          }
-@@ -250,23 +250,34 @@ LUA_API int lua_getinfo (lua_State *L, const char *what, lua_Debug *ar) {
+@@ -250,23 +342,34 @@ LUA_API int lua_getinfo (lua_State *L, const char *what, lua_Debug *ar) {
    int status;
    Closure *f = NULL;
    CallInfo *ci = NULL;
@@ -901,6 +1275,51 @@ index fadde80..46ffc8a 100644
      incr_top(L);
    }
    if (strchr(what, 'L'))
+@@ -296,7 +399,9 @@ static int precheck (const Proto *pt) {
+   check(!(pt->is_vararg & VARARG_NEEDSARG) ||
+               (pt->is_vararg & VARARG_HASARG));
+   check(pt->sizeupvalues <= pt->nups);
++#ifndef LUA_OPTIMIZE_DEBUG
+   check(pt->sizelineinfo == pt->sizecode || pt->sizelineinfo == 0);
++#endif
+   check(pt->sizecode > 0 && GET_OPCODE(pt->code[pt->sizecode-1]) == OP_RETURN);
+   return 1;
+ }
+diff --git a/src/ldebug.h b/src/ldebug.h
+index 2a7d398..4f03f18 100644
+--- a/src/ldebug.h
++++ b/src/ldebug.h
+@@ -13,7 +13,19 @@
+ 
+ #define pcRel(pc, p)	(cast(int, (pc) - (p)->code) - 1)
+ 
+-#define getline(f,pc)	(((f)->lineinfo) ? (f)->lineinfo[pc] : 0)
++#ifdef LUA_OPTIMIZE_DEBUG
++#  include "lvm.h"
++#  define getline(f,pc) (((f)->packedlineinfo) ? luaG_getline((f), pc) : 0)
++#  define INFO_FILL_BYTE   0x7F
++#  define INFO_DELTA_MASK  0x80
++#  define INFO_SIGN_MASK   0x40
++#  define INFO_DELTA_6BITS 0x3F
++#  define INFO_DELTA_7BITS 0x7F
++#  define INFO_MAX_LINECNT  126
++#  define lineInfoTop(fs) ((fs)->f->packedlineinfo + (fs)->lastlineOffset)
++#else
++#  define getline(f,pc) (((f)->lineinfo) ? (f)->lineinfo[pc] : 0)
++#endif
+ 
+ #define resethookcount(L)	(L->hookcount = L->basehookcount)
+ 
+@@ -29,4 +41,9 @@ LUAI_FUNC void luaG_runerror (lua_State *L, const char *fmt, ...);
+ LUAI_FUNC int luaG_checkcode (const Proto *pt);
+ LUAI_FUNC int luaG_checkopenop (Instruction i);
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++LUAI_FUNC int luaG_getline (const Proto *f, int pc);
++LUAI_FUNC int luaG_stripdebug (lua_State *L, Proto *f, int level, int recv);
++#endif
++
+ #endif
 diff --git a/src/ldo.c b/src/ldo.c
 index cd8d080..bfcf0f9 100644
 --- a/src/ldo.c
@@ -1068,10 +1487,21 @@ index cd8d080..bfcf0f9 100644
  }
  
 diff --git a/src/ldump.c b/src/ldump.c
-index acf4b12..06872cd 100644
+index acf4b12..68b6e49 100644
 --- a/src/ldump.c
 +++ b/src/ldump.c
-@@ -85,7 +85,10 @@ static void DumpConstants(const Proto* f, DumpState* D)
+@@ -16,6 +16,10 @@
+ #include "lstate.h"
+ #include "lundump.h"
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++#include <string.h>
++#endif
++
+ typedef struct {
+  lua_State* L;
+  lua_Writer writer;
+@@ -85,7 +89,10 @@ static void DumpConstants(const Proto* f, DumpState* D)
   for (i=0; i<n; i++)
   {
    const TValue* o=&f->k[i];
@@ -1083,11 +1513,48 @@ index acf4b12..06872cd 100644
    switch (ttype(o))
    {
     case LUA_TNIL:
+@@ -112,8 +119,25 @@ static void DumpConstants(const Proto* f, DumpState* D)
+ static void DumpDebug(const Proto* f, DumpState* D)
+ {
+  int i,n;
++#ifdef LUA_OPTIMIZE_DEBUG
++ n = (D->strip || f->packedlineinfo == NULL) ? 0: strlen(cast(char *,f->packedlineinfo))+1;
++ DumpInt(n,D);
++//--eLua Align4(D);
++ if (n)
++  {
++  DumpBlock(f->packedlineinfo, n, D);
++  }
++#else
++//--eLua  n= (D->strip) ? 0 : f->sizelineinfo;
++//--eLua  DumpInt(n,D);
++//--eLua  Align4(D);
++//--eLua  for (i=0; i<n; i++)
++//--eLua  {
++//--eLua   DumpInt(f->lineinfo[i],D);
++//--eLua  }
+  n= (D->strip) ? 0 : f->sizelineinfo;
+  DumpVector(f->lineinfo,n,sizeof(int),D);
++#endif
+  n= (D->strip) ? 0 : f->sizelocvars;
+  DumpInt(n,D);
+  for (i=0; i<n; i++)
 diff --git a/src/lfunc.c b/src/lfunc.c
-index 54d64e2..82fbfaf 100644
+index 54d64e2..46fa92e 100644
 --- a/src/lfunc.c
 +++ b/src/lfunc.c
-@@ -66,7 +66,6 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
+@@ -18,7 +18,9 @@
+ #include "lobject.h"
+ #include "lstate.h"
+ 
+-
++#ifdef LUA_OPTIMIZE_DEBUG
++#include <string.h>
++#endif
+ 
+ Closure *luaF_newCclosure (lua_State *L, int nelems, Table *e) {
+   Closure *c = cast(Closure *, luaM_malloc(L, sizeCclosure(nelems)));
+@@ -66,7 +68,6 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
    }
    uv = luaM_new(L, UpVal);  /* not found: create a new one */
    uv->tt = LUA_TUPVAL;
@@ -1095,7 +1562,7 @@ index 54d64e2..82fbfaf 100644
    uv->v = level;  /* current value lives in the stack */
    uv->next = *pp;  /* chain it in the proper position */
    *pp = obj2gco(uv);
-@@ -74,6 +73,7 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
+@@ -74,6 +75,7 @@ UpVal *luaF_findupval (lua_State *L, StkId level) {
    uv->u.l.next = g->uvhead.u.l.next;
    uv->u.l.next->u.l.prev = uv;
    g->uvhead.u.l.next = uv;
@@ -1103,8 +1570,48 @@ index 54d64e2..82fbfaf 100644
    lua_assert(uv->u.l.next->u.l.prev == uv && uv->u.l.prev->u.l.next == uv);
    return uv;
  }
+@@ -121,19 +123,23 @@ Proto *luaF_newproto (lua_State *L) {
+   f->sizep = 0;
+   f->code = NULL;
+   f->sizecode = 0;
+-  f->sizelineinfo = 0;
+   f->sizeupvalues = 0;
+   f->nups = 0;
+   f->upvalues = NULL;
+   f->numparams = 0;
+   f->is_vararg = 0;
+   f->maxstacksize = 0;
+-  f->lineinfo = NULL;
+   f->sizelocvars = 0;
+   f->locvars = NULL;
+   f->linedefined = 0;
+   f->lastlinedefined = 0;
+   f->source = NULL;
++#ifdef LUA_OPTIMIZE_DEBUG
++  f->packedlineinfo = NULL;
++#else
++  f->lineinfo = NULL;
++  f->sizelineinfo = 0;
++#endif
+   return f;
+ }
+ 
+@@ -142,7 +148,13 @@ void luaF_freeproto (lua_State *L, Proto *f) {
+   luaM_freearray(L, f->code, f->sizecode, Instruction);
+   luaM_freearray(L, f->p, f->sizep, Proto *);
+   luaM_freearray(L, f->k, f->sizek, TValue);
++#ifdef LUA_OPTIMIZE_DEBUG
++  if (f->packedlineinfo) {
++    luaM_freearray(L, f->packedlineinfo, strlen(cast(char *, f->packedlineinfo))+1, unsigned char); 
++  }   
++#else
+   luaM_freearray(L, f->lineinfo, f->sizelineinfo, int);
++#endif
+   luaM_freearray(L, f->locvars, f->sizelocvars, struct LocVar);
+   luaM_freearray(L, f->upvalues, f->sizeupvalues, TString *);
+   luaM_free(L, f);
 diff --git a/src/lgc.c b/src/lgc.c
-index feefa3b..31c1564 100644
+index feefa3b..139fcae 100644
 --- a/src/lgc.c
 +++ b/src/lgc.c
 @@ -232,8 +232,10 @@ static void traverseclosure (global_State *g, Closure *cl) {
@@ -1138,7 +1645,26 @@ index feefa3b..31c1564 100644
  }
  
  
-@@ -419,8 +423,6 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
+@@ -309,11 +313,16 @@ static l_mem propagatemark (global_State *g) {
+       g->gray = p->gclist;
+       traverseproto(g, p);
+       return sizeof(Proto) + sizeof(Instruction) * p->sizecode +
++//--eLua                     (proto_is_readonly(p) ? 0 : sizeof(Instruction) * p->sizecode +
+                              sizeof(Proto *) * p->sizep +
+                              sizeof(TValue) * p->sizek + 
+-                             sizeof(int) * p->sizelineinfo +
+                              sizeof(LocVar) * p->sizelocvars +
+-                             sizeof(TString *) * p->sizeupvalues;
++                             sizeof(TString *) * p->sizeupvalues +
++#ifdef LUA_OPTIMIZE_DEBUG
++                             (p->packedlineinfo ? strlen(cast(char *, p->packedlineinfo))+1 : 0);
++#else
++                             sizeof(int) * p->sizelineinfo;
++#endif
+     }
+     default: lua_assert(0); return 0;
+   }
+@@ -419,8 +428,6 @@ static GCObject **sweeplist (lua_State *L, GCObject **p, lu_mem count) {
      else {  /* must erase `curr' */
        lua_assert(isdead(g, curr) || deadmask == bitmask(SFIXEDBIT));
        *p = curr->gch.next;
@@ -1147,7 +1673,7 @@ index feefa3b..31c1564 100644
        freeobj(L, curr);
      }
    }
-@@ -434,6 +436,8 @@ static void checkSizes (lua_State *L) {
+@@ -434,6 +441,8 @@ static void checkSizes (lua_State *L) {
    if (g->strt.nuse < cast(lu_int32, g->strt.size/4) &&
        g->strt.size > MINSTRTABSIZE*2)
      luaS_resize(L, g->strt.size/2);  /* table is too big */
@@ -1156,7 +1682,7 @@ index feefa3b..31c1564 100644
    /* check size of buffer */
    if (luaZ_sizebuffer(&g->buff) > LUA_MINBUFFER*2) {  /* buffer too big? */
      size_t newsize = luaZ_sizebuffer(&g->buff) / 2;
-@@ -549,6 +553,15 @@ static void atomic (lua_State *L) {
+@@ -549,6 +558,15 @@ static void atomic (lua_State *L) {
    g->estimate = g->totalbytes - udsize;  /* first estimate */
  }
  
@@ -1172,7 +1698,7 @@ index feefa3b..31c1564 100644
  
  static l_mem singlestep (lua_State *L) {
    global_State *g = G(L);
-@@ -567,12 +580,7 @@ static l_mem singlestep (lua_State *L) {
+@@ -567,18 +585,13 @@ static l_mem singlestep (lua_State *L) {
        }
      }
      case GCSsweepstring: {
@@ -1186,7 +1712,14 @@ index feefa3b..31c1564 100644
        return GCSWEEPCOST;
      }
      case GCSsweep: {
-@@ -606,10 +614,14 @@ static l_mem singlestep (lua_State *L) {
+       lu_mem old = g->totalbytes;
+       g->sweepgc = sweeplist(L, g->sweepgc, GCSWEEPMAX);
+-      if (*g->sweepgc == NULL) {  /* nothing more to sweep? */
++      if (*g->sweepgc < (GCObject*)256) {  /* nothing more to sweep? */
+         checkSizes(L);
+         g->gcstate = GCSfinalize;  /* end sweep phase */
+       }
+@@ -606,10 +619,14 @@ static l_mem singlestep (lua_State *L) {
  
  void luaC_step (lua_State *L) {
    global_State *g = G(L);
@@ -1201,7 +1734,7 @@ index feefa3b..31c1564 100644
    do {
      lim -= singlestep(L);
      if (g->gcstate == GCSpause)
-@@ -626,11 +638,23 @@ void luaC_step (lua_State *L) {
+@@ -626,11 +643,23 @@ void luaC_step (lua_State *L) {
    else {
      setthreshold(g);
    }
@@ -1225,7 +1758,7 @@ index feefa3b..31c1564 100644
    if (g->gcstate <= GCSpropagate) {
      /* reset sweep marks to sweep all elements (returning them to white) */
      g->sweepstrgc = 0;
-@@ -652,6 +676,7 @@ void luaC_fullgc (lua_State *L) {
+@@ -652,6 +681,7 @@ void luaC_fullgc (lua_State *L) {
      singlestep(L);
    }
    setthreshold(g);
@@ -1233,7 +1766,15 @@ index feefa3b..31c1564 100644
  }
  
  
-@@ -694,6 +719,14 @@ void luaC_upvalbarrier_ (lua_State *L, UpVal *uv) {
+@@ -687,13 +717,21 @@ void luaC_barrierback (lua_State *L, Table *t) {
+ void luaC_upvalbarrier_ (lua_State *L, UpVal *uv) {
+   global_State *g = G(L);
+   GCObject *o = gcvalue(uv->v);
+-  lua_assert(!upisopen(uv));  /* ensured by macro luaC_upvalbarrier */
++  //lua_assert(!upisopen(uv));  /* ensured by macro luaC_upvalbarrier */
+   if (g->gcstate <= GCSpropagate)
+     markobject(g, o);
+ }
  
  
  
@@ -1311,10 +1852,10 @@ index 3cfb6f4..8372102 100644
  LUAI_FUNC void luaC_linkupval (lua_State *L, UpVal *uv);
  LUAI_FUNC void luaC_barrierf (lua_State *L, GCObject *o, GCObject *v);
 diff --git a/src/linit.c b/src/linit.c
-index a214434..09479b2 100644
+index a214434..ecf6f30 100644
 --- a/src/linit.c
 +++ b/src/linit.c
-@@ -12,22 +12,52 @@
+@@ -12,22 +12,78 @@
  
  #include "lualib.h"
  #include "lauxlib.h"
@@ -1325,10 +1866,9 @@ index a214434..09479b2 100644
    {"", luaopen_base},
 -  {LUA_LOADLIBNAME, luaopen_package},
 -  {LUA_TABLIBNAME, luaopen_table},
--  {LUA_IOLIBNAME, luaopen_io},
--  {LUA_OSLIBNAME, luaopen_os},
 +  //{LUA_LOADLIBNAME, luaopen_package},
-+  //{LUA_IOLIBNAME, luaopen_io},
+   {LUA_IOLIBNAME, luaopen_io},
+-  {LUA_OSLIBNAME, luaopen_os},
    {LUA_STRLIBNAME, luaopen_string},
 +#if LUA_OPTIMIZE_MEMORY == 0
    {LUA_MATHLIBNAME, luaopen_math},
@@ -1351,11 +1891,23 @@ index a214434..09479b2 100644
 +extern const luaL_Reg tab_funcs[];
 +extern const luaL_Reg dblib[];
 +extern const luaL_Reg co_funcs[];
++extern const luaL_Reg bit_lib[];
 +extern const luaL_Reg colors_funcs[];
 +extern const luaR_value_entry colors_values[];
 +extern const luaR_value_entry colours_values[];
++extern const luaL_Reg fs_lib[];
++extern const luaL_Reg help_lib[];
 +extern const luaL_Reg keys_funcs[];
 +extern const luaR_value_entry keys_values[];
++extern const luaL_Reg parallel_lib[];
++extern const luaL_Reg peripheral_lib[];
++extern const luaL_Reg rednet_funcs[];
++extern const luaL_Reg rs_lib[];
++extern const luaR_value_entry rednet_values[];
++extern const luaL_Reg settings_lib[];
++extern const luaL_Reg term_lib[];
++extern const luaL_Reg vector_lib[];
++extern const luaL_Reg vector_mt[];
 +const luaR_table lua_rotable[] = 
 +{
 +#if LUA_OPTIMIZE_MEMORY > 0
@@ -1364,23 +1916,37 @@ index a214434..09479b2 100644
 +  {LUA_TABLIBNAME, tab_funcs, NULL},
 +  //{LUA_DBLIBNAME, dblib, NULL},
 +  {LUA_COLIBNAME, co_funcs, NULL},
++  {"term", term_lib, NULL},
++  {"bit", bit_lib, NULL},
 +  {"colors", colors_funcs, colors_values},
 +  {"colours", colors_funcs, colours_values},
++  {"fs", fs_lib, NULL},
++  {"help", help_lib, NULL},
 +  {"keys", keys_funcs, keys_values},
++  {"parallel", parallel_lib, NULL},
++  {"peripheral", peripheral_lib, NULL},
++  {"rednet", rednet_funcs, rednet_values},
++  {"redstone", rs_lib, NULL},
++  {"rs", rs_lib, NULL},
++  {"settings", settings_lib, NULL},
++  {"vector", vector_lib, NULL},
 +#endif
 +  {NULL, NULL, NULL}
++#if LUA_OPTIMIZE_MEMORY > 0
++  ,{"vector.mt", vector_mt, NULL}
++#endif
 +};
 +
  
  LUALIB_API void luaL_openlibs (lua_State *L) {
    const luaL_Reg *lib = lualibs;
-@@ -37,4 +67,3 @@ LUALIB_API void luaL_openlibs (lua_State *L) {
+@@ -37,4 +93,3 @@ LUALIB_API void luaL_openlibs (lua_State *L) {
      lua_call(L, 1, 0);
    }
  }
 -
 diff --git a/src/liolib.c b/src/liolib.c
-index e1c9a44..bef4ca4 100644
+index e1c9a44..50f3067 100644
 --- a/src/liolib.c
 +++ b/src/liolib.c
 @@ -17,6 +17,7 @@
@@ -1391,11 +1957,12 @@ index e1c9a44..bef4ca4 100644
  
  FILE* default_fopen(lua_State *L, const char * filename, const char * mode) {return fopen(filename, mode);}
  int default_fclose(lua_State *L, FILE * stream) {return fclose(stream);}
-@@ -30,9 +31,19 @@ int (*mounter_fclose)(lua_State *L, FILE * stream) = &default_fclose;
+@@ -30,6 +31,16 @@ int (*mounter_fclose)(lua_State *L, FILE * stream) = &default_fclose;
  
  #define IO_INPUT	1
  #define IO_OUTPUT	2
 +#define IO_STDERR	0
++#undef LUA_OPTIMIZE_MEMORY
 +
 +#if LUA_OPTIMIZE_MEMORY != 2
 +#define LUA_IO_GETFIELD(f)	lua_rawgeti(L, LUA_ENVIRONINDEX, f)
@@ -1407,10 +1974,6 @@ index e1c9a44..bef4ca4 100644
  
  
  static const char *const fnames[] = {"input", "output"};
-+static const int liolib_keys[] = {(int)&stderr, (int)&stdin, (int)&stdout};
- 
- 
- static int pushresult (lua_State *L, int i, const char *filename) {
 @@ -137,15 +148,28 @@ static int io_fclose (lua_State *L) {
  
  
@@ -1592,7 +2155,7 @@ index be53550..5ace1c4 100644
      default:
        lua_assert(iscollectable(t1));
 diff --git a/src/lobject.h b/src/lobject.h
-index 574e1bb..4453449 100644
+index 574e1bb..69e7509 100644
 --- a/src/lobject.h
 +++ b/src/lobject.h
 @@ -85,11 +85,15 @@ typedef struct lua_TValue {
@@ -1681,7 +2244,39 @@ index 574e1bb..4453449 100644
      checkliveness(G(L),i_o); }
  
  
-@@ -312,7 +328,7 @@ typedef union Closure {
+@@ -223,24 +239,29 @@ typedef union Udata {
+ } Udata;
+ 
+ 
+-
+-
+ /*
+ ** Function Prototypes
+ */
++
+ typedef struct Proto {
+   CommonHeader;
+   TValue *k;  /* constants used by the function */
+   Instruction *code;
+   struct Proto **p;  /* functions defined inside the function */
++#ifdef LUA_OPTIMIZE_DEBUG
++  unsigned char *packedlineinfo;
++#else
+   int *lineinfo;  /* map from opcodes to source lines */
++#endif
+   struct LocVar *locvars;  /* information about local variables */
+   TString **upvalues;  /* upvalue names */
+   TString  *source;
+   int sizeupvalues;
+   int sizek;  /* size of `k' */
+   int sizecode;
++#ifndef LUA_OPTIMIZE_DEBUG
+   int sizelineinfo;
++#endif
+   int sizep;  /* size of `p' */
+   int sizelocvars;
+   int linedefined;
+@@ -312,7 +333,7 @@ typedef union Closure {
  } Closure;
  
  
@@ -1690,7 +2285,7 @@ index 574e1bb..4453449 100644
  #define isLfunction(o)	(ttype(o) == LUA_TFUNCTION && !clvalue(o)->c.isC)
  
  
-@@ -353,7 +369,8 @@ typedef struct Table {
+@@ -353,7 +374,8 @@ typedef struct Table {
  ** `module' operation for hashing (size is always a power of 2)
  */
  #define lmod(s,size) \
@@ -1726,10 +2321,73 @@ index 8bca646..d0800eb 100644
  }
  
 diff --git a/src/lparser.c b/src/lparser.c
-index dda7488..d002e96 100644
+index dda7488..d3b8015 100644
 --- a/src/lparser.c
 +++ b/src/lparser.c
-@@ -383,14 +383,18 @@ static void close_func (LexState *ls) {
+@@ -6,6 +6,7 @@
+ 
+ 
+ #include <string.h>
++#include <stdio.h>   /*DEBUG*/
+ 
+ #define lparser_c
+ #define LUA_CORE
+@@ -25,8 +26,6 @@
+ #include "lstring.h"
+ #include "ltable.h"
+ 
+-
+-
+ #define hasmultret(k)		((k) == VCALL || (k) == VVARARG)
+ 
+ #define getlocvar(fs, i)	((fs)->f->locvars[(fs)->actvar[i]])
+@@ -344,6 +343,12 @@ static void open_func (LexState *ls, FuncState *fs) {
+   fs->bl = NULL;
+   f->source = ls->source;
+   f->maxstacksize = 2;  /* registers 0/1 are always valid */
++#ifdef LUA_OPTIMIZE_DEBUG
++  fs->packedlineinfoSize = 0;
++  fs->lastline = 0;
++  fs->lastlineOffset = 0;
++  fs->lineinfoLastPC = -1;
++#endif
+   fs->h = luaH_new(L, 0, 0);
+   /* anchor table of constants and prototype (to avoid being collected) */
+   sethvalue2s(L, L->top, fs->h);
+@@ -361,8 +366,14 @@ static void close_func (LexState *ls) {
+   luaK_ret(fs, 0, 0);  /* final return */
+   luaM_reallocvector(L, f->code, f->sizecode, fs->pc, Instruction);
+   f->sizecode = fs->pc;
++#ifdef LUA_OPTIMIZE_DEBUG
++  f->packedlineinfo[fs->lastlineOffset+1]=0;
++  luaM_reallocvector(L, f->packedlineinfo, fs->packedlineinfoSize, 
++                     fs->lastlineOffset+2, unsigned char);
++#else
+   luaM_reallocvector(L, f->lineinfo, f->sizelineinfo, fs->pc, int);
+   f->sizelineinfo = fs->pc;
++#endif
+   luaM_reallocvector(L, f->k, f->sizek, fs->nk, TValue);
+   f->sizek = fs->nk;
+   luaM_reallocvector(L, f->p, f->sizep, fs->np, Proto *);
+@@ -379,18 +390,39 @@ static void close_func (LexState *ls) {
+   L->top -= 2;  /* remove table and prototype from the stack */
+ }
+ 
++#ifdef LUA_OPTIMIZE_DEBUG
++static void compile_stripdebug(lua_State *L, Proto *f) { 
++  int level;
++  lua_pushlightuserdata(L, &luaG_stripdebug );
++  lua_gettable(L, LUA_REGISTRYINDEX);
++  level = lua_isnil(L, -1) ? LUA_OPTIMIZE_DEBUG : lua_tointeger(L, -1);
++  lua_pop(L, 1);
++  
++  if (level > 1) { 
++    int len = luaG_stripdebug(L, f, level, 1);
++    UNUSED(len);
++  }
++}
++#endif
+ 
  Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
    struct LexState lexstate;
    struct FuncState funcstate;
@@ -1745,10 +2403,38 @@ index dda7488..d002e96 100644
    chunk(&lexstate);
    check(&lexstate, TK_EOS);
    close_func(&lexstate);
++#ifdef LUA_OPTIMIZE_DEBUG
++  compile_stripdebug(L, funcstate.f);
++#endif
 +  L->top--; /* remove 'name' from stack */
    lua_assert(funcstate.prev == NULL);
    lua_assert(funcstate.f->nups == 0);
    lua_assert(lexstate.fs == NULL);
+@@ -398,7 +430,6 @@ Proto *luaY_parser (lua_State *L, ZIO *z, Mbuffer *buff, const char *name) {
+ }
+ 
+ 
+-
+ /*============================================================*/
+ /* GRAMMAR RULES */
+ /*============================================================*/
+diff --git a/src/lparser.h b/src/lparser.h
+index 18836af..74b7aa6 100644
+--- a/src/lparser.h
++++ b/src/lparser.h
+@@ -72,6 +72,12 @@ typedef struct FuncState {
+   lu_byte nactvar;  /* number of active local variables */
+   upvaldesc upvalues[LUAI_MAXUPVALUES];  /* upvalues */
+   unsigned short actvar[LUAI_MAXVARS];  /* declared-variable stack */
++#ifdef LUA_OPTIMIZE_DEBUG
++  int packedlineinfoSize; /* only used during compilation for line info */
++  int lastline;           /* ditto */
++  int lastlineOffset;     /* ditto */
++  int lineinfoLastPC;     /* ditto */
++#endif
+ } FuncState;
+ 
+ 
 diff --git a/src/lstate.c b/src/lstate.c
 index 9c69517..34f823a 100644
 --- a/src/lstate.c
@@ -1928,7 +2614,7 @@ index 4526530..5d681b1 100644
  }
  
 diff --git a/src/lstrlib.c b/src/lstrlib.c
-index d3e8e82..d3639a6 100644
+index d3e8e82..03642fb 100644
 --- a/src/lstrlib.c
 +++ b/src/lstrlib.c
 @@ -18,7 +18,7 @@
@@ -1959,18 +2645,16 @@ index d3e8e82..d3639a6 100644
        int n;
        lua_pushvalue(L, 3);
        n = push_captures(&st->ms, s, st->e);
-@@ -683,8 +684,9 @@ static int str_gsub (lua_State *L) {
+@@ -683,7 +684,8 @@ static int str_gsub (lua_State *L) {
    s->res = 0;
    s->max_s = luaL_optint(L, 4, srcl + 1);
    luaL_argcheck(L, tr == LUA_TNUMBER || tr == LUA_TSTRING ||
 -                   tr == LUA_TFUNCTION || tr == LUA_TTABLE, 3,
--                      "string/function/table expected");
 +                   tr == LUA_TFUNCTION || tr == LUA_TTABLE ||
 +                   tr == LUA_TLIGHTFUNCTION, 3,
-+                      "string/function/table/lightfunction expected");
+                       "string/function/table expected");
    luaL_buffinit(L, &s->b);
    s->ms.L = L;
-   s->ms.src_init = src;
 @@ -1311,30 +1313,55 @@ static int str_unpack(lua_State *L) {
  /* }====================================================== */
  
@@ -2480,7 +3164,7 @@ index a0de881..49247d6 100644
  }
 -
 diff --git a/src/ltm.c b/src/ltm.c
-index c27f0f6..bd820b5 100644
+index c27f0f6..e740695 100644
 --- a/src/ltm.c
 +++ b/src/ltm.c
 @@ -21,7 +21,7 @@
@@ -2488,7 +3172,7 @@ index c27f0f6..bd820b5 100644
  
  const char *const luaT_typenames[] = {
 -  "nil", "boolean", "userdata", "number",
-+  "nil", "boolean", "rotable", "function", "userdata", "number",
++  "nil", "boolean", "table", "function", "userdata", "number",
    "string", "table", "function", "userdata", "thread",
    "proto", "upval"
  };
@@ -2529,9 +3213,18 @@ index 3a46609..670b1de 100644
          const char *filename = argv[i] + 2;
          if (*filename == '\0') filename = argv[++i];
 diff --git a/src/lua.h b/src/lua.h
-index 75c9692..df324d1 100644
+index 75c9692..86b973d 100644
 --- a/src/lua.h
 +++ b/src/lua.h
+@@ -17,7 +17,7 @@
+ 
+ 
+ #define LUA_VERSION	"Lua 5.1"
+-#define LUA_RELEASE	"Lua 5.1.5"
++#define LUA_RELEASE	"Lua 5.1.5 TEST"
+ #define LUA_VERSION_NUM	501
+ #define LUA_COPYRIGHT	"Copyright (C) 1994-2012 Lua.org, PUC-Rio"
+ #define LUA_AUTHORS 	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
 @@ -74,15 +74,15 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
  
  #define LUA_TNIL		0
@@ -2557,7 +3250,17 @@ index 75c9692..df324d1 100644
  
  /* minimum Lua stack available to a C function */
  #define LUA_MINSTACK	20
-@@ -170,6 +170,8 @@ LUA_API const char *(lua_pushfstring) (lua_State *L, const char *fmt, ...);
+@@ -95,6 +95,9 @@ typedef void * (*lua_Alloc) (void *ud, void *ptr, size_t osize, size_t nsize);
+ #include LUA_USER_H
+ #endif
+ 
++#if defined(LUA_OPTIMIZE_DEBUG) && LUA_OPTIMIZE_DEBUG == 0
++#undef LUA_OPTIMIZE_DEBUG
++#endif
+ 
+ /* type of numbers in Lua */
+ typedef LUA_NUMBER lua_Number;
+@@ -170,6 +173,8 @@ LUA_API const char *(lua_pushfstring) (lua_State *L, const char *fmt, ...);
  LUA_API void  (lua_pushcclosure) (lua_State *L, lua_CFunction fn, int n);
  LUA_API void  (lua_pushboolean) (lua_State *L, int b);
  LUA_API void  (lua_pushlightuserdata) (lua_State *L, void *p);
@@ -2566,7 +3269,7 @@ index 75c9692..df324d1 100644
  LUA_API int   (lua_pushthread) (lua_State *L);
  
  
-@@ -242,6 +244,8 @@ LUA_API int  (lua_status) (lua_State *L);
+@@ -242,6 +247,8 @@ LUA_API int  (lua_status) (lua_State *L);
  #define LUA_GCSTEP		5
  #define LUA_GCSETPAUSE		6
  #define LUA_GCSETSTEPMUL	7
@@ -2575,7 +3278,7 @@ index 75c9692..df324d1 100644
  
  LUA_API int (lua_gc) (lua_State *L, int what, int data);
  
-@@ -283,6 +287,7 @@ LUA_API void  (lua_setlockstate) (lua_State *L, int enabled); /* enables/disable
+@@ -283,6 +290,7 @@ LUA_API void  (lua_setlockstate) (lua_State *L, int enabled); /* enables/disable
  #define lua_strlen(L,i)		lua_objlen(L, (i))
  
  #define lua_isfunction(L,n)	(lua_type(L, (n)) == LUA_TFUNCTION)
@@ -2584,7 +3287,7 @@ index 75c9692..df324d1 100644
  #define lua_islightuserdata(L,n)	(lua_type(L, (n)) == LUA_TLIGHTUSERDATA)
  #define lua_isnil(L,n)		(lua_type(L, (n)) == LUA_TNIL)
 diff --git a/src/luaconf.h b/src/luaconf.h
-index 6423bfe..760a1ec 100644
+index 6423bfe..97e3a72 100644
 --- a/src/luaconf.h
 +++ b/src/luaconf.h
 @@ -370,6 +370,16 @@
@@ -2604,12 +3307,12 @@ index 6423bfe..760a1ec 100644
  /*
  @@ luai_apicheck is the assert macro used by the Lua-C API.
  ** CHANGE luai_apicheck if you want Lua to perform some checks in the
-@@ -759,7 +769,20 @@ union luai_Cast { double l_d; long l_l; };
+@@ -759,7 +769,25 @@ union luai_Cast { double l_d; long l_l; };
  ** without modifying the main part of the file.
  */
  
-+#define LUA_MAX_ROTABLE_NAME      16
- 
++#define LUA_MAX_ROTABLE_NAME      32
++
 +/* LUA_OPTIMIZE_MEMORY:
 +   0 - no optimizations
 +   1 - optimize while maitaining full compatibility with the test suite
@@ -2622,11 +3325,16 @@ index 6423bfe..760a1ec 100644
 +#if LUA_OPTIMIZE_MEMORY == 2 && LUA_USE_POPEN
 +#error "Pipes not supported in aggresive optimization mode (LUA_OPTIMIZE_MEMORY=2)"
 +#endif
++
++#define LUA_OPTIMIZE_DEBUG 3
+ 
++//#include <assert.h>
++//#define lua_assert(k) (assert((k)))
  
  #endif
  
 diff --git a/src/lundump.c b/src/lundump.c
-index 4e76e0c..dca1108 100644
+index 4e76e0c..25d2220 100644
 --- a/src/lundump.c
 +++ b/src/lundump.c
 @@ -117,10 +117,10 @@ static void LoadConstants(LoadState* S, Proto* f)
@@ -2642,20 +3350,49 @@ index 4e76e0c..dca1108 100644
  	setsvalue2n(S->L,o,LoadString(S));
  	break;
     default:
+@@ -139,9 +139,18 @@ static void LoadDebug(LoadState* S, Proto* f)
+ {
+  int i,n;
+  n=LoadInt(S);
++#ifdef LUA_OPTIMIZE_DEBUG
++ if(n) {
++   f->packedlineinfo=luaM_newvector(S->L,n,unsigned char);
++   LoadBlock(S,f->packedlineinfo,n);
++ } else {
++   f->packedlineinfo=NULL;
++ }
++#else
+  f->lineinfo=luaM_newvector(S->L,n,int);
+  f->sizelineinfo=n;
+  LoadVector(S,f->lineinfo,n,sizeof(int));
++#endif
+  n=LoadInt(S);
+  f->locvars=luaM_newvector(S->L,n,LocVar);
+  f->sizelocvars=n;
 diff --git a/src/lvm.c b/src/lvm.c
-index bc3e3d6..05a5ac6 100644
+index bc3e3d6..58fc2c7 100644
 --- a/src/lvm.c
 +++ b/src/lvm.c
-@@ -25,7 +25,7 @@
+@@ -9,6 +9,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#include <stddef.h>  /*DEBUG */ 
++
+ #define lvm_c
+ #define LUA_CORE
+ 
+@@ -25,8 +27,7 @@
  #include "ltable.h"
  #include "ltm.h"
  #include "lvm.h"
 -
+-
 +#include "lrotable.h"
  
- 
  /* limit for table tag-method chains (to avoid loops) */
-@@ -49,9 +49,10 @@ int luaV_tostring (lua_State *L, StkId obj) {
+ #define MAXTAGLOOP	100
+@@ -49,9 +50,10 @@ int luaV_tostring (lua_State *L, StkId obj) {
      return 0;
    else {
      char s[LUAI_MAXNUMBER2STR];
@@ -2667,7 +3404,7 @@ index bc3e3d6..05a5ac6 100644
      return 1;
    }
  }
-@@ -105,9 +106,31 @@ static void callTM (lua_State *L, const TValue *f, const TValue *p1,
+@@ -105,12 +107,33 @@ static void callTM (lua_State *L, const TValue *f, const TValue *p1,
    luaD_call(L, L->top - 4, 0, 0);
  }
  
@@ -2683,23 +3420,26 @@ index bc3e3d6..05a5ac6 100644
 -void luaV_gettable (lua_State *L, const TValue *t, TValue *key, StkId val) {
 +void luaV_gettable(lua_State *L, const TValue *t, TValue *key, StkId val) {
    int loop;
-+  if (ttisrotable(t)) {
-+    setnilvalue(val);
-+    if (ttisstring(key)) {
-+      char keyname[LUA_MAX_ROTABLE_NAME + 1];
-+      lu_byte keytype;
-+      lua_getcstr(keyname, rawtsvalue(key), LUA_MAX_ROTABLE_NAME);      
-+      luaR_result res = luaR_findentry(rvalue(t), keyname, &keytype);
-+      if (keytype == LUA_TLIGHTFUNCTION)
-+        setfvalue(val, (void*)(size_t)res)
-+      else if (keytype == LUA_TNUMBER)
-+        setnvalue(val, (lua_Number)res)
-+    }
-+    return;
-+  }
    for (loop = 0; loop < MAXTAGLOOP; loop++) {
      const TValue *tm;
-     if (ttistable(t)) {  /* `t' is a table? */
+-    if (ttistable(t)) {  /* `t' is a table? */
++    if (ttisrotable(t)) {
++      if (ttisstring(key)) {
++        char keyname[LUA_MAX_ROTABLE_NAME + 1];
++        lu_byte keytype;
++        lua_getcstr(keyname, rawtsvalue(key), LUA_MAX_ROTABLE_NAME);      
++        luaR_result res = luaR_findentry(rvalue(t), keyname, &keytype);
++        if (keytype == LUA_TLIGHTFUNCTION)
++          setfvalue(val, (void*)(size_t)res)
++        else if (keytype == LUA_TNUMBER)
++          setnvalue(val, (lua_Number)res)
++        else setnilvalue(val);
++      } else setnilvalue(val);
++      return;
++    } else if (ttistable(t)) {  /* `t' is a table? */
+       Table *h = hvalue(t);
+       const TValue *res = luaH_get(h, key); /* do a primitive get */
+       if (!ttisnil(res) ||  /* result is no nil? */
 @@ -122,7 +145,7 @@ void luaV_gettable (lua_State *L, const TValue *t, TValue *key, StkId val) {
      }
      else if (ttisnil(tm = luaT_gettmbyobj(L, t, TM_INDEX)))
@@ -2822,30 +3562,49 @@ index bc3e3d6..05a5ac6 100644
  }
  
  
-@@ -467,7 +517,21 @@ int luaV_execute (lua_State *L) {
-         TValue *rb = KBx(i);
+@@ -403,8 +453,8 @@ int luaV_execute (lua_State *L) {
+         luaC_checkGC(L);
+         int concat = 0;
+         if (G(L)->haltmessage) {
+-          if (!clvalue(L->ci->func)->c.isC && clvalue(L->ci->func)->l.p->lineinfo[pcRel(cast(const Instruction *, L->ctx), ci_func(L->ci)->l.p)] > 0) {
+-            char wheretemp[LUA_IDSIZE+20];  /* 20 extra characters should be enough for line number + 4 characters (:: <\0>) */
++          /*if (!clvalue(L->ci->func)->c.isC && clvalue(L->ci->func)->l.p->lineinfo[pcRel(cast(const Instruction *, L->ctx), ci_func(L->ci)->l.p)] > 0) {
++            char wheretemp[LUA_IDSIZE+20];  /* 20 extra characters should be enough for line number + 4 characters (:: <\0>) * /
+             size_t wheresize;
+             luaO_chunkid(wheretemp, getstr(clvalue(L->ci->func)->l.p->source), LUA_IDSIZE);
+             wheresize = strlen(wheretemp);
+@@ -412,7 +462,7 @@ int luaV_execute (lua_State *L) {
+             setsvalue2s(L, L->top, luaS_newlstr(L, wheretemp, wheresize));
+             L->top++;
+             concat = 1;
+-          }
++          }*/
+           setsvalue2s(L, L->top, luaS_newlstr(L, G(L)->haltmessage, strlen(G(L)->haltmessage)));
+         }
+         else {setnilvalue(L->top);}
+@@ -468,6 +518,21 @@ int luaV_execute (lua_State *L) {
          sethvalue(L, &g, cl->env);
          lua_assert(ttisstring(rb));
--        Protect(luaV_gettable(L, &g, rb, ra));
+         Protect(luaV_gettable(L, &g, rb, ra));
 +#if LUA_OPTIMIZE_MEMORY > 0
-+        /* First try to look for a rotable with this name */
-+        char keyname[LUA_MAX_ROTABLE_NAME + 1];
-+        lu_byte keytype;
-+        lua_getcstr(keyname, rawtsvalue(rb), LUA_MAX_ROTABLE_NAME);
-+        luaR_result res = luaR_findglobal(keyname, &keytype);
-+        if (keytype == LUA_TROTABLE)
-+          setrvalue(ra, (void*)(size_t)res)
-+        else if (keytype == LUA_TLIGHTFUNCTION)
-+          setfvalue(ra, (void*)(size_t)res)
-+        else if (keytype == LUA_TNUMBER)
-+          setnvalue(ra, (lua_Number)res)        
-+        else 
++        if (ttisnil(ra)) {
++          /* If failed, try to look for a rotable with this name */
++          char keyname[LUA_MAX_ROTABLE_NAME + 1];
++          lu_byte keytype;
++          lua_getcstr(keyname, rawtsvalue(rb), LUA_MAX_ROTABLE_NAME);
++          luaR_result res = luaR_findglobal(keyname, &keytype);
++          if (keytype == LUA_TROTABLE)
++            setrvalue(ra, (void*)(size_t)res)
++          else if (keytype == LUA_TLIGHTFUNCTION)
++            setfvalue(ra, (void*)(size_t)res)
++          else if (keytype == LUA_TNUMBER)
++            setnvalue(ra, (lua_Number)res)     
++        }
 +#endif
-+          Protect(luaV_gettable(L, &g, rb, ra));
          continue;
        }
        case OP_GETTABLE: {
-@@ -494,7 +558,9 @@ int luaV_execute (lua_State *L) {
+@@ -494,7 +559,9 @@ int luaV_execute (lua_State *L) {
        case OP_NEWTABLE: {
          int b = GETARG_B(i);
          int c = GETARG_C(i);
@@ -2856,7 +3615,7 @@ index bc3e3d6..05a5ac6 100644
          Protect(luaC_checkGC(L));
          continue;
        }
-@@ -559,9 +625,10 @@ int luaV_execute (lua_State *L) {
+@@ -559,9 +626,10 @@ int luaV_execute (lua_State *L) {
              break;
            }
            default: {  /* try metamethod */
@@ -2868,7 +3627,7 @@ index bc3e3d6..05a5ac6 100644
              )
            }
          }
-@@ -734,6 +801,7 @@ int luaV_execute (lua_State *L) {
+@@ -734,6 +802,7 @@ int luaV_execute (lua_State *L) {
          int c = GETARG_C(i);
          int last;
          Table *h;
@@ -2876,7 +3635,7 @@ index bc3e3d6..05a5ac6 100644
          if (n == 0) {
            n = cast_int(L->top - ra) - 1;
            L->top = L->ci->top;
-@@ -749,6 +817,7 @@ int luaV_execute (lua_State *L) {
+@@ -749,6 +818,7 @@ int luaV_execute (lua_State *L) {
            setobj2t(L, luaH_setnum(L, h, last--), val);
            luaC_barriert(L, h, val);
          }
@@ -2884,7 +3643,7 @@ index bc3e3d6..05a5ac6 100644
          continue;
        }
        case OP_CLOSE: {
-@@ -761,7 +830,9 @@ int luaV_execute (lua_State *L) {
+@@ -761,7 +831,9 @@ int luaV_execute (lua_State *L) {
          int nup, j;
          p = cl->p->p[GETARG_Bx(i)];
          nup = p->nups;
@@ -2894,7 +3653,7 @@ index bc3e3d6..05a5ac6 100644
          ncl->l.p = p;
          for (j=0; j<nup; j++, pc++) {
            if (GET_OPCODE(*pc) == OP_GETUPVAL)
-@@ -771,7 +842,7 @@ int luaV_execute (lua_State *L) {
+@@ -771,7 +843,7 @@ int luaV_execute (lua_State *L) {
              ncl->l.upvals[j] = luaF_findupval(L, base + GETARG_B(*pc));
            }
          }
@@ -2903,6 +3662,23 @@ index bc3e3d6..05a5ac6 100644
          Protect(luaC_checkGC(L));
          continue;
        }
+diff --git a/src/lvm.h b/src/lvm.h
+index 32da167..02ec299 100644
+--- a/src/lvm.h
++++ b/src/lvm.h
+@@ -25,11 +25,11 @@
+ #define SAVEPC(L, pc)	L->ctx = cast(void *, (pc))
+ 
+ 
+-
+ LUAI_FUNC int luaV_lessthan (lua_State *L, const TValue *l, const TValue *r);
+ LUAI_FUNC int luaV_equalval (lua_State *L, const TValue *t1, const TValue *t2);
+ LUAI_FUNC const TValue *luaV_tonumber (const TValue *obj, TValue *n);
+ LUAI_FUNC int luaV_tostring (lua_State *L, StkId obj);
++
+ LUAI_FUNC void luaV_gettable (lua_State *L, const TValue *t, TValue *key,
+                                             StkId val);
+ LUAI_FUNC void luaV_settable (lua_State *L, const TValue *t, TValue *key,
 diff --git a/src/lzio.h b/src/lzio.h
 index 51d695d..d6073d7 100644
 --- a/src/lzio.h

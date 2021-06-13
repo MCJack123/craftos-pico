@@ -54,7 +54,7 @@ static int bit_blogic_rshift(lua_State *L) {
     return 1;
 }
 
-static luaL_Reg bit_lib[] = {
+const luaL_Reg bit_lib[] = {
     {"band", bit_band},
     {"bor", bit_bor},
     {"bnot", bit_bnot},
